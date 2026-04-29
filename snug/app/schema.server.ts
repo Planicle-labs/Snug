@@ -19,3 +19,13 @@ export const sessions = pgTable("session", {
   refreshToken: text("refreshToken"),
   refreshTokenExpires: timestamp("refreshTokenExpires", { mode: "date" }),
 });
+
+export const organizations = pgTable('organizations', {
+  id: text('id').primaryKey(),
+  shop: text('shop').notNull().unique(),
+  brandId: text('brand_id'),
+  brandName: text('brand_name'),
+  isWidgetActive: boolean('is_widget_active').default(false).notNull(),
+  installedAt: timestamp('installed_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
