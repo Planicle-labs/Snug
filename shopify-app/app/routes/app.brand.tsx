@@ -11,11 +11,11 @@ import {
     Button,
     Banner,
     InlineStack,
-    Badge,
+    Divider,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { organizations } from "../schema.server";
+import { organizations, brandRequests } from "../schema.server";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
@@ -31,8 +31,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
     return {
         shop,
-        currentBrandId: org?.brandId ?? null,
-        currentBrandName: org?.brandName ?? null,
+        currentBrandSlug: org?.brandSlug ?? null,
     };
 };
 
@@ -41,44 +40,121 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const shop = session.shop;
 
     const formData = await request.formData();
-    const brandId = formData.get("brandId") as string;
-    const brandName = formData.get("brandName") as string;
+    const intent = formData.get("intent");
 
-    if (!brandId || !brandName) {
-        return { error: "Please enter a valid brand name." };
+    if (intent === "search") {
+        const brandName = formData.get("brandName") as string;
+        
+        if (!brandName || brandName.trim().length < 2) {
+            return { error: "Please enter at least 2 characters to search." };
+        }
+
+        const workerUrl = process.env.CLOUDFLARE_WORKER_URL;
+        if (!workerUrl) {
+            return { error: "Worker not configured. Please set CLOUDFLARE_WORKER_URL." };
+        }
+
+        try {
+            const response = await fetch(`${workerUrl}/v1/brands/search?q=${encodeURIComponent(brandName.trim())}`, {
+                headers: { " Accept": "application/json" },
+            });
+            
+            if (!response.ok) {
+                return { error: "Unable to search brands. Please try again." };
+            }
+
+            const data = await response.json();
+            return { searchResults: data.brands || [] };
+        } catch (err) {
+            return { error: "Failed to search brands. Please try again." };
+        }
     }
 
-    const [existing] = await db
-        .select()
-        .from(organizations)
-        .where(eq(organizations.shop, shop))
-        .limit(1);
+    if (intent === "save-brand") {
+        const brandSlug = formData.get("brandSlug") as string;
+        const brandName = formData.get("brandName") as string;
 
-    if (existing) {
-        await db
-            .update(organizations)
-            .set({ brandId, brandName, updatedAt: new Date() })
-            .where(eq(organizations.shop, shop));
-    } else {
-        await db.insert(organizations).values({
+        if (!brandSlug || !brandName) {
+            return { error: "Please select a brand." };
+        }
+
+        const [existing] = await db
+            .select()
+            .from(organizations)
+            .where(eq(organizations.shop, shop))
+            .limit(1);
+
+        if (existing) {
+            await db
+                .update(organizations)
+                .set({ brandSlug, updatedAt: new Date() })
+                .where(eq(organizations.shop, shop));
+        } else {
+            await db.insert(organizations).values({
+                shop,
+                brandSlug,
+                apiKey: randomUUID(),
+                planTier: "free",
+                usageRemaining: 500,
+                widgetActive: false,
+            });
+        }
+
+        return { success: true, brandSlug, brandName };
+    }
+
+    if (intent === "request-brand") {
+        const brandName = formData.get("brandName") as string;
+        const brandWebsite = formData.get("brandWebsite") as string;
+
+        if (!brandName) {
+            return { error: "Please enter the brand name." };
+        }
+
+        const [org] = await db
+            .select()
+            .from(organizations)
+            .where(eq(organizations.shop, shop))
+            .limit(1);
+
+        if (!org) {
+            return { error: "Organization not found. Please reinstall the app." };
+        }
+
+        await db.insert(brandRequests).values({
             id: randomUUID(),
-            shop,
-            brandId,
-            brandName,
-            isWidgetActive: false,
+            orgId: org.id,
+            brandName: brandName.trim(),
+            brandWebsite: brandWebsite?.trim() || null,
+            status: "pending",
         });
+
+        return { requestSubmitted: true, brandName };
     }
 
-    return { success: true, brandName };
+    return { error: "Unknown action" };
 };
 
 export default function BrandSetup() {
-    const { currentBrandName } = useLoaderData<typeof loader>();
+    const { currentBrandSlug } = useLoaderData<typeof loader>();
     const actionData = useActionData<typeof action>();
     const navigation = useNavigation();
     const isSubmitting = navigation.state === "submitting";
-    const [brandName, setBrandName] = useState(currentBrandName ?? "");
+    
+    const [brandName, setBrandName] = useState("");
+    const [selectedBrand, setSelectedBrand] = useState<{slug: string; name: string} | null>(null);
+    const [showRequestForm, setShowRequestForm] = useState(false);
+    const [searchPerformed, setSearchPerformed] = useState(false);
+
     const handleBrandNameChange = useCallback((value: string) => setBrandName(value), []);
+    const handleSearch = useCallback(() => {
+        setSearchPerformed(true);
+        setSelectedBrand(null);
+        setShowRequestForm(false);
+    }, []);
+
+    const searchResults = actionData?.searchResults as Array<{slug: string; name: string}> | undefined;
+    const hasResults = searchResults && searchResults.length > 0;
 
     return (
         <Page
@@ -88,16 +164,16 @@ export default function BrandSetup() {
             <Layout>
                 <Layout.Section>
 
-                    {currentBrandName && (
+                    {currentBrandSlug && !actionData?.success && (
                         <Banner tone="success" title="Brand connected">
                             <Text as="p" variant="bodyMd">
-                                Your store is currently connected to <strong>{currentBrandName}</strong>.
+                                Your store is connected to <strong>{currentBrandSlug}</strong>.
                             </Text>
                         </Banner>
                     )}
 
                     {actionData?.error && (
-                        <Banner tone="critical" title="Something went wrong">
+                        <Banner tone="critical" title="Error">
                             <Text as="p" variant="bodyMd">{actionData.error}</Text>
                         </Banner>
                     )}
@@ -105,7 +181,16 @@ export default function BrandSetup() {
                     {actionData?.success && (
                         <Banner tone="success" title="Brand saved">
                             <Text as="p" variant="bodyMd">
-                                Your store is now connected to <strong>{actionData.brandName}</strong>.
+                                Your store is now connected to <strong>{actionData.brandSlug}</strong>.
+                            </Text>
+                        </Banner>
+                    )}
+
+                    {actionData?.requestSubmitted && (
+                        <Banner tone="success" title="Request submitted">
+                            <Text as="p" variant="bodyMd">
+                                We have received your request for <strong>{actionData.brandName}</strong>. 
+                                We will add it to our database within 48 hours.
                             </Text>
                         </Banner>
                     )}
@@ -116,15 +201,16 @@ export default function BrandSetup() {
                     <Card>
                         <BlockStack gap="400">
                             <BlockStack gap="200">
-                                <Text as="h2" variant="headingMd">Connect your brand</Text>
+                                <Text as="h2" variant="headingMd">Search your brand</Text>
                                 <Text as="p" variant="bodyMd" tone="subdued">
-                                    Enter the brand name exactly as it appears in the Snug database.
-                                    This is used to match your size charts to shopper references.
+                                    Enter your brand name to search the Snug database. 
+                                    If found, you can connect it for size recommendations.
                                 </Text>
                             </BlockStack>
 
                             <Form method="post">
-                                <BlockStack gap="400">
+                                <input type="hidden" name="intent" value="search" />
+                                <BlockStack gap="300">
                                     <TextField
                                         label="Brand name"
                                         name="brandName"
@@ -132,40 +218,107 @@ export default function BrandSetup() {
                                         value={brandName}
                                         onChange={handleBrandNameChange}
                                         autoComplete="off"
-                                        helpText="Use lowercase. This must match the brand slug in the Snug database."
+                                        helpText="Enter your brand name in lowercase."
                                     />
-                                    <input type="hidden" name="brandId" value="placeholder" />
                                     <InlineStack align="end">
                                         <Button
                                             variant="primary"
                                             submit
                                             loading={isSubmitting}
+                                            onClick={handleSearch}
                                         >
-                                            {currentBrandName ? "Update brand" : "Save brand"}
+                                            Search
                                         </Button>
                                     </InlineStack>
                                 </BlockStack>
                             </Form>
 
-                        </BlockStack>
-                    </Card>
-                </Layout.Section>
+                            {hasResults && (
+                                <>
+                                    <Divider />
+                                    <BlockStack gap="200">
+                                        <Text as="h3" variant="headingSm">Select your brand</Text>
+                                        <Form method="post">
+                                            <input type="hidden" name="intent" value="save-brand" />
+                                            {searchResults.map((brand) => (
+                                                <input
+                                                    key={brand.slug}
+                                                    type="radio"
+                                                    name="brandSlug"
+                                                    value={brand.slug}
+                                                    checked={selectedBrand?.slug === brand.slug}
+                                                    onChange={() => {
+                                                        setSelectedBrand({ slug: brand.slug, name: brand.name });
+                                                        setBrandName(brand.name);
+                                                    }}
+                                                />
+                                            ))}
+                                            <div style={{ marginTop: "12px" }}>
+                                                <input type="hidden" name="brandName" value={selectedBrand?.name || brandName} />
+                                                <Button
+                                                    variant="primary"
+                                                    submit
+                                                    disabled={!selectedBrand}
+                                                    loading={isSubmitting}
+                                                >
+                                                    Connect Brand
+                                                </Button>
+                                            </div>
+                                        </Form>
+                                    </BlockStack>
+                                </>
+                            )}
 
-                <Layout.Section>
-                    <Card>
-                        <BlockStack gap="300">
-                            <Text as="h2" variant="headingMd">Brand not in the database?</Text>
-                            <Text as="p" variant="bodyMd" tone="subdued">
-                                If your brand is not yet in the Snug database, submit a request
-                                and we will add your size charts within 48 hours.
-                            </Text>
-                            <Button
-                                url="mailto:brands@snug.app?subject=Brand request"
-                                external
-                                variant="plain"
-                            >
-                                Request your brand
-                            </Button>
+                            {searchPerformed && !hasResults && !showRequestForm && (
+                                <>
+                                    <Divider />
+                                    <BlockStack gap="300">
+                                        <Text as="p" variant="bodyMd" tone="subdued">
+                                            Your brand was not found. Would you like to request it?
+                                        </Text>
+                                        <Button variant="plain" onClick={() => setShowRequestForm(true)}>
+                                            Request this brand
+                                        </Button>
+                                    </BlockStack>
+                                </>
+                            )}
+
+                            {showRequestForm && (
+                                <>
+                                    <Divider />
+                                    <BlockStack gap="200">
+                                        <Text as="h3" variant="headingSm">Request a brand</Text>
+                                        <Form method="post">
+                                            <input type="hidden" name="intent" value="request-brand" />
+                                            <BlockStack gap="300">
+                                                <TextField
+                                                    label="Brand name"
+                                                    name="brandName"
+                                                    value={brandName}
+                                                    onChange={handleBrandNameChange}
+                                                    autoComplete="off"
+                                                />
+                                                <TextField
+                                                    label="Brand website (optional)"
+                                                    name="brandWebsite"
+                                                    placeholder="https://yourbrand.com"
+                                                    autoComplete="off"
+                                                />
+                                                <InlineStack align="end">
+                                                    <Button
+                                                        variant="primary"
+                                                        submit
+                                                        loading={isSubmitting}
+                                                    >
+                                                        Submit Request
+                                                    </Button>
+                                                </InlineStack>
+                                            </BlockStack>
+                                        </Form>
+                                    </BlockStack>
+                                </>
+                            )}
+
                         </BlockStack>
                     </Card>
                 </Layout.Section>
