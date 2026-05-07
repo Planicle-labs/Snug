@@ -12,7 +12,7 @@ import {
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { organizations, fitSizeCharts, garmentMappings } from "../schema.server";
+import { organizations, fitSizeCharts, garmentMappings } from "@snug/db";
 import { eq, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 

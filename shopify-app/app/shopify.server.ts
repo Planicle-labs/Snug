@@ -6,7 +6,7 @@ import {
 } from "@shopify/shopify-app-react-router/server";
 import { DrizzleSessionStoragePostgres } from "@shopify/shopify-app-session-storage-drizzle";
 import db from "./db.server";
-import { sessions } from "./schema.server";
+import { sessions } from "@snug/db";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,

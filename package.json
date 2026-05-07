@@ -1,0 +1,13 @@
+{
+  "name": "snug",
+  "private": true,
+  "workspaces": [
+    "shopify-app",
+    "worker",
+    "scraper",
+    "packages/*"
+  ],
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0"
+  }
+}

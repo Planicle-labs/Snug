@@ -1,4 +1,4 @@
-import { bigint, boolean, check, integer, jsonb, numeric, pgTable, text, timestamp, uuid, uniqueIndex } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, index, integer, jsonb, numeric, pgTable, text, timestamp, uuid, uniqueIndex } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const sessions = pgTable("session", {
@@ -25,7 +25,7 @@ export const organizations = pgTable('organizations', {
   id: uuid('id').primaryKey().defaultRandom(),
   shop: text('shop').notNull().unique(),
   brandSlug: text('brand_slug'),
-  apiKey: text('api_key').unique().notNull(),
+  apiKey: text('api_key').unique(),
   planTier: text('plan_tier').default('free').notNull(),
   usageRemaining: integer('usage_remaining').default(500).notNull(),
   billingPeriodStart: timestamp('billing_period_start').defaultNow().notNull(),
@@ -67,15 +67,15 @@ export const fitSizeCharts = pgTable('fit_size_charts', {
 }, (table) => ({
   orgGarmentSizeUnique: uniqueIndex('org_garment_size_unique')
     .on(table.orgId, table.garmentType, table.sizeLabel),
-  
-  garmentTypeCheck: check('garment_type_check', 
+
+  garmentTypeCheck: check('garment_type_check',
     sql`${table.garmentType} IN ('tshirt','shirt','polo','sweatshirt','hoodie','jacket','kurta','top')`
   ),
-  
+
   fitTypeCheck: check('fit_type_check',
     sql`${table.fitType} IN ('slim','regular','oversized')`
   ),
-  
+
   easeSourceCheck: check('ease_source_check',
     sql`${table.easeSource} IN ('explicit','inferred','user_calibrated')`
   ),
@@ -103,3 +103,68 @@ export const brandRequests = pgTable('brand_requests', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
+
+export const usageLogs = pgTable(
+  'usage_logs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // No FK — Worker uses restricted connection that cannot enforce
+    // referential integrity across tables
+    orgId: uuid('org_id').notNull(),
+    refBrand: text('ref_brand').notNull(),
+    refGarment: text('ref_garment').notNull(),
+    refSize: text('ref_size').notNull(),
+    predictedSize: text('predicted_size').notNull(),
+    confidence: integer('confidence').notNull(),
+    // confidence_label derived at query time:
+    // 75-100 = high, 45-74 = medium, below 45 = low
+    isBoundaryCase: boolean('is_boundary_case').notNull(),
+    responseMs: integer('response_ms').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => ({
+    // Critical for cron COUNT queries — prevents full table scan per org
+    orgCreatedAtIndex: index('usage_logs_org_created_at_idx').on(
+      table.orgId,
+      table.createdAt
+    ),
+  })
+);
+
+export const brandSizeCharts = pgTable(
+  'brand_size_charts',
+  {
+    brand: text('brand').notNull(),
+    garmentType: text('garment_type').notNull(),
+    sizeLabel: text('size_label').notNull(),
+    chestMinCm: numeric('chest_min_cm').notNull(),
+    chestMaxCm: numeric('chest_max_cm').notNull(),
+    lengthMinCm: numeric('length_min_cm'),
+    lengthMaxCm: numeric('length_max_cm'),
+    shoulderMinCm: numeric('shoulder_min_cm'),
+    shoulderMaxCm: numeric('shoulder_max_cm'),
+    fitType: text('fit_type').notNull(),
+    easeValueCm: numeric('ease_value_cm').notNull(),
+    easeSource: text('ease_source').notNull(),
+    scrapedAt: timestamp('scraped_at').notNull(),
+  },
+  (table) => ({
+    pk: uniqueIndex('brand_size_charts_pk').on(
+      table.brand,
+      table.garmentType,
+      table.sizeLabel
+    ),
+    garmentTypeCheck: check(
+      'brand_size_charts_garment_type_check',
+      sql`${table.garmentType} IN ('tshirt','shirt','polo','sweatshirt','hoodie','jacket','kurta','top')`
+    ),
+    fitTypeCheck: check(
+      'brand_size_charts_fit_type_check',
+      sql`${table.fitType} IN ('slim','regular','oversized')`
+    ),
+    easeSourceCheck: check(
+      'brand_size_charts_ease_source_check',
+      sql`${table.easeSource} IN ('explicit','inferred','user_calibrated')`
+    ),
+  })
+);

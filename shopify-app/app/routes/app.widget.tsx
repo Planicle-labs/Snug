@@ -15,7 +15,7 @@ import {
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { organizations, widgetConfigs } from "../schema.server";
+import { organizations, widgetConfigs } from "@snug/db";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 

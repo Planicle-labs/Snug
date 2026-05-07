@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+shopify-app/dist/
+shopify-app/.cache/
+worker/dist/
+scraper/dist/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Cloudflare
+.wrangler/
+.dev.vars
+
+# Drizzle migrations (generated locally, committed per workspace)
+# shopify-app/drizzle/  # uncomment if you want to ignore migrations
+
+# Editor
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+Thumbs.db
+
+# Lock files
+package-lock.json
+
+# TypeScript
+*.tsbuildinfo

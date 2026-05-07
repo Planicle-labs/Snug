@@ -3,7 +3,7 @@ import { useLoaderData } from "react-router";
 import { Page, Layout, Card, BlockStack, Text, Button, Banner, InlineStack, Badge } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { organizations, fitSizeCharts, garmentMappings } from "../schema.server";
+import { organizations, fitSizeCharts, garmentMappings } from "@snug/db";
 import { eq, sql } from "drizzle-orm";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
