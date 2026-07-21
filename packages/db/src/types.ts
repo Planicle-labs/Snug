@@ -25,6 +25,8 @@ export type GarmentType =
   | 'kurta'
   | 'top'
 
+export type PlanTier = 'trial' | 'paid'
+
 export type FitType = 'slim' | 'regular' | 'oversized'
 
 export type EaseSource = 'explicit' | 'inferred' | 'user_calibrated'
@@ -75,9 +77,13 @@ export interface PredictResponse {
 // KV record shapes — what the Worker reads from KV
 export interface MerchantKVRecord {
   org_id: string
-  plan_tier: string
+  plan_tier: 'trial' | 'paid'
   widget_active: boolean
   api_key: string
+  trial_requests_remaining: number
+  // Only present on paid tier
+  per_conversion_inr?: number
+  monthly_cap_inr?: number
 }
 
 export interface BrandSizeChartKVRecord {

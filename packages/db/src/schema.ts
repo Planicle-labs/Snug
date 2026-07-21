@@ -25,10 +25,23 @@ export const organizations = pgTable('organizations', {
   id: uuid('id').primaryKey().defaultRandom(),
   shop: text('shop').notNull().unique(),
   brandSlug: text('brand_slug'),
+  //Does not include the not null flag as for a brief duration of time it will be null
+  //API key is generated programmatically during the OAuth callback after the row is created
   apiKey: text('api_key').unique(),
-  planTier: text('plan_tier').default('free').notNull(),
-  usageRemaining: integer('usage_remaining').default(500).notNull(),
-  billingPeriodStart: timestamp('billing_period_start').defaultNow().notNull(),
+
+  // Trial tracking
+  planTier: text('plan_tier').default('trial').notNull(),
+  trialRequestsRemaining: integer('trial_requests_remaining').default(1000).notNull(),
+  trialExhaustedAt: timestamp('trial_exhausted_at'),
+
+  // Paid tier fields — all nullable, set on upgrade
+  baseFeeInr: integer('base_fee_inr'),
+  perConversionInr: integer('per_conversion_inr'),
+  monthlyCapInr: integer('monthly_cap_inr'),
+  shopifyChargeId: text('shopify_charge_id'),
+  billingPeriodStart: timestamp('billing_period_start'),
+  upgradedAt: timestamp('upgraded_at'),
+
   onboardingComplete: boolean('onboarding_complete').default(false).notNull(),
   widgetActive: boolean('widget_active').default(false).notNull(),
   installedAt: timestamp('installed_at').defaultNow().notNull(),
@@ -120,6 +133,8 @@ export const usageLogs = pgTable(
     // 75-100 = high, 45-74 = medium, below 45 = low
     isBoundaryCase: boolean('is_boundary_case').notNull(),
     responseMs: integer('response_ms').notNull(),
+    visitorId: text('visitor_id'),
+    ledToConversion: boolean('led_to_conversion').default(false).notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (table) => ({
@@ -130,6 +145,32 @@ export const usageLogs = pgTable(
     ),
   })
 );
+
+export const conversionEvents = pgTable(
+  'conversion_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // No FK — Worker uses restricted connection
+    orgId: uuid('org_id').notNull(),
+    usageLogId: uuid('usage_log_id').notNull(),
+    visitorId: text('visitor_id').notNull(),
+    shopifyProductId: text('shopify_product_id').notNull(),
+    billed: boolean('billed').default(false).notNull(),
+    // Format: '2026-05' — used for grouping monthly billing reports
+    billingPeriod: text('billing_period').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => ({
+    orgBillingPeriodIndex: index('conversion_events_org_billing_period_idx').on(
+      table.orgId,
+      table.billingPeriod
+    ),
+    visitorProductIndex: index('conversion_events_visitor_product_idx').on(
+      table.visitorId,
+      table.shopifyProductId
+    ),
+  })
+)
 
 export const brandSizeCharts = pgTable(
   'brand_size_charts',
