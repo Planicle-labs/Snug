@@ -1,0 +1,38 @@
+# Worker Name
+name = "snug-worker"
+# Entry point
+main = "src/index.ts"
+#  Cloudflare occasionally changes how the Workers runtime behaves.
+# They use dates to version these changes so existing Workers are not broken by updates.
+compatibility_date = "2025-05-01"
+ # enables a subset of Node.js APIs inside the Worker runtime.
+ # We need this specifically for the @neondatabase/serverless package
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT="development"
+
+[[kv_namespaces]]
+# name you use to access it in code via env.KV
+binding = "KV"
+# ID of the KV namespace in Cloudflare's system
+id = "9adf9e3534794fc58cd25ce4f225c465"
+# a separate KV namespace used when running wrangler dev locally.
+# prevents your local development from reading and writing to your production KV data
+preview_id = "76761b47b9b54f689f6e32e22f5ad6db"
+
+[[durable_objects.bindings]]
+# how you access the Durable Object namespace in code via env.USAGE_COUNTER.
+name = "USAGE_COUNTER"
+#  the name of the TypeScript class you export from your Worker that implements the Durable Object
+class_name = "UsageCounter"
+
+# specific to Durable Objects with SQLite storage.
+# When you use SQLite inside a DO, Cloudflare needs to know the schema version so
+# it can manage storage correctly across DO instances globally.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["UsageCounter"]
+
+# UsageCounter is a new class that uses SQLite storage.
+# This is a one-time migration declaration when you first create the class.
