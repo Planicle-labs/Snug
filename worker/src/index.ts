@@ -1,5 +1,8 @@
 import { Hono } from 'hono'
-import type {KVNamespace,DurableObjectNamespace} from '@cloudflare/workers-types'
+import type { KVNamespace, DurableObjectNamespace } from '@cloudflare/workers-types'
+
+import { corsMiddleware } from './middleware/cors'
+import { authMiddleware } from './middleware/auth'
 
 interface Env{
   DATABASE_URL: string,
@@ -13,6 +16,11 @@ interface Env{
 // Instead of writing the fetch function yourself, you create a Hono app and call app.fetch.
 // Hono's fetch has the exact same signature the Workers runtime expects.
 const app = new Hono<{ Bindings: Env }>()
+
+app.use('*', corsMiddleware)
+// for health_checks we don't require auth
+app.use('/v1/*', authMiddleware)
+
 app.get('/health', (c) => {
   return c.json({
     status:'ok',
