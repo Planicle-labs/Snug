@@ -5,6 +5,7 @@ import type {
   usageLogs,
   brandSizeCharts,
   garmentMappings,
+  anthropometricAnchors,
 } from './schema'
 
 // Inferred types from Drizzle schema
@@ -13,6 +14,7 @@ export type FitSizeChart = InferSelectModel<typeof fitSizeCharts>
 export type UsageLog = InferInsertModel<typeof usageLogs>
 export type BrandSizeChart = InferSelectModel<typeof brandSizeCharts>
 export type GarmentMapping = InferSelectModel<typeof garmentMappings>
+export type AnthropometricAnchor = InferSelectModel<typeof anthropometricAnchors>
 
 // Shared enums
 export type GarmentType =

@@ -1,3 +1,14 @@
+CREATE TABLE "anthropometric_anchors" (
+	"garment_type" text NOT NULL,
+	"size_label" text NOT NULL,
+	"chest_body_cm" numeric NOT NULL,
+	"shoulder_body_cm" numeric,
+	"height_cm" numeric,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "anthropometric_anchors_garment_type_check" CHECK ("anthropometric_anchors"."garment_type" IN ('tshirt','shirt','polo','sweatshirt','hoodie','jacket','kurta','top'))
+);
+--> statement-breakpoint
 CREATE TABLE "brand_requests" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"org_id" uuid NOT NULL,
@@ -6,6 +17,36 @@ CREATE TABLE "brand_requests" (
 	"status" text DEFAULT 'pending' NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "brand_size_charts" (
+	"brand" text NOT NULL,
+	"garment_type" text NOT NULL,
+	"size_label" text NOT NULL,
+	"chest_min_cm" numeric NOT NULL,
+	"chest_max_cm" numeric NOT NULL,
+	"length_min_cm" numeric,
+	"length_max_cm" numeric,
+	"shoulder_min_cm" numeric,
+	"shoulder_max_cm" numeric,
+	"fit_type" text NOT NULL,
+	"ease_value_cm" numeric NOT NULL,
+	"ease_source" text NOT NULL,
+	"scraped_at" timestamp NOT NULL,
+	CONSTRAINT "brand_size_charts_garment_type_check" CHECK ("brand_size_charts"."garment_type" IN ('tshirt','shirt','polo','sweatshirt','hoodie','jacket','kurta','top')),
+	CONSTRAINT "brand_size_charts_fit_type_check" CHECK ("brand_size_charts"."fit_type" IN ('slim','regular','oversized')),
+	CONSTRAINT "brand_size_charts_ease_source_check" CHECK ("brand_size_charts"."ease_source" IN ('explicit','inferred','user_calibrated'))
+);
+--> statement-breakpoint
+CREATE TABLE "conversion_events" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"org_id" uuid NOT NULL,
+	"usage_log_id" uuid NOT NULL,
+	"visitor_id" text NOT NULL,
+	"shopify_product_id" text NOT NULL,
+	"billed" boolean DEFAULT false NOT NULL,
+	"billing_period" text NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "fit_size_charts" (
@@ -44,10 +85,16 @@ CREATE TABLE "organizations" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"shop" text NOT NULL,
 	"brand_slug" text,
-	"api_key" text NOT NULL,
-	"plan_tier" text DEFAULT 'free' NOT NULL,
-	"usage_remaining" integer DEFAULT 500 NOT NULL,
-	"billing_period_start" timestamp DEFAULT now() NOT NULL,
+	"api_key" text,
+	"plan_tier" text DEFAULT 'trial' NOT NULL,
+	"trial_requests_remaining" integer DEFAULT 1000 NOT NULL,
+	"trial_exhausted_at" timestamp,
+	"base_fee_inr" integer,
+	"per_conversion_inr" integer,
+	"monthly_cap_inr" integer,
+	"shopify_charge_id" text,
+	"billing_period_start" timestamp,
+	"upgraded_at" timestamp,
 	"onboarding_complete" boolean DEFAULT false NOT NULL,
 	"widget_active" boolean DEFAULT false NOT NULL,
 	"installed_at" timestamp DEFAULT now() NOT NULL,
@@ -76,6 +123,21 @@ CREATE TABLE "session" (
 	"refreshTokenExpires" timestamp
 );
 --> statement-breakpoint
+CREATE TABLE "usage_logs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"org_id" uuid NOT NULL,
+	"ref_brand" text NOT NULL,
+	"ref_garment" text NOT NULL,
+	"ref_size" text NOT NULL,
+	"predicted_size" text NOT NULL,
+	"confidence" integer NOT NULL,
+	"is_boundary_case" boolean NOT NULL,
+	"response_ms" integer NOT NULL,
+	"visitor_id" text,
+	"led_to_conversion" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "widget_configs" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"org_id" uuid NOT NULL,
@@ -91,6 +153,11 @@ ALTER TABLE "fit_size_charts" ADD CONSTRAINT "fit_size_charts_org_id_organizatio
 ALTER TABLE "garment_mappings" ADD CONSTRAINT "garment_mappings_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "garment_mappings" ADD CONSTRAINT "garment_mappings_chart_override_id_fit_size_charts_id_fk" FOREIGN KEY ("chart_override_id") REFERENCES "public"."fit_size_charts"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "widget_configs" ADD CONSTRAINT "widget_configs_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "anthropometric_anchors_pk" ON "anthropometric_anchors" USING btree ("garment_type","size_label");--> statement-breakpoint
+CREATE UNIQUE INDEX "brand_size_charts_pk" ON "brand_size_charts" USING btree ("brand","garment_type","size_label");--> statement-breakpoint
+CREATE INDEX "conversion_events_org_billing_period_idx" ON "conversion_events" USING btree ("org_id","billing_period");--> statement-breakpoint
+CREATE INDEX "conversion_events_visitor_product_idx" ON "conversion_events" USING btree ("visitor_id","shopify_product_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "org_garment_size_unique" ON "fit_size_charts" USING btree ("org_id","garment_type","size_label");--> statement-breakpoint
 CREATE UNIQUE INDEX "org_product_unique" ON "garment_mappings" USING btree ("org_id","shopify_product_id");--> statement-breakpoint
+CREATE INDEX "usage_logs_org_created_at_idx" ON "usage_logs" USING btree ("org_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "org_unique" ON "widget_configs" USING btree ("org_id");

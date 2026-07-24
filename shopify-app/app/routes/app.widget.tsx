@@ -18,6 +18,7 @@ import db from "../db.server";
 import { organizations, widgetConfigs } from "@snug/db";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { pushApiKeyToKV } from "../lib/kv.server";
 
 const POSITION_OPTIONS = [
     { label: "Below size selector", value: "below_size_selector" },
@@ -74,6 +75,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 .update(organizations)
                 .set({ widgetActive: true, updatedAt: new Date() })
                 .where(eq(organizations.shop, shop));
+
+            if (org.apiKey) {
+                await pushApiKeyToKV({
+                    api_key: org.apiKey,
+                    org_id: org.id,
+                    shop: org.shop,
+                    plan_tier: org.planTier as "trial" | "paid",
+                    trial_requests_remaining: org.trialRequestsRemaining,
+                    widget_active: true,
+                });
+            }
         }
 
         return { activated: true };
@@ -91,6 +103,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 .update(organizations)
                 .set({ widgetActive: false, updatedAt: new Date() })
                 .where(eq(organizations.shop, shop));
+
+            if (org.apiKey) {
+                await pushApiKeyToKV({
+                    api_key: org.apiKey,
+                    org_id: org.id,
+                    shop: org.shop,
+                    plan_tier: org.planTier as "trial" | "paid",
+                    trial_requests_remaining: org.trialRequestsRemaining,
+                    widget_active: false,
+                });
+            }
         }
 
         return { deactivated: true };

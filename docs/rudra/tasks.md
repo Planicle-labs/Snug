@@ -18,21 +18,21 @@
 
 ## 1. Database Foundation & OAuth Install Sync
 
-- [ ] **TASK-R00: Schema & Migration Synchronization**
+- [x] **TASK-R00: Schema & Migration Synchronization**
   - **Details**: Sync Drizzle schema with current trial model (`planTier: 'trial'`, `trialRequestsRemaining: 1000`, `conversionEvents`, `brandSizeCharts`). Generate and apply updated Drizzle migration. Fix legacy field references (`planTier: 'free'`, `usageRemaining: 500`) in `app.brand.tsx`.
   - **Target Date**: Jul 24, 2026
 
-- [ ] **TASK-R01: Automatic Org & API Key Creation on Install**
+- [x] **TASK-R01: Automatic Org & API Key Creation on Install**
   - **File**: `shopify-app/app/shopify.server.ts`
   - **Details**: Add `afterAuth` callback to `shopifyApp` config to automatically insert an `organizations` row, generate a unique `api_key`, initialize `apikey:{key}` in Cloudflare KV, and set default trial quota.
   - **Target Date**: Jul 24, 2026
 
-- [ ] **TASK-R02: Dashboard KV Sync Utility**
+- [x] **TASK-R02: Dashboard KV Sync Utility**
   - **File**: `shopify-app/app/lib/kv.server.ts`
   - **Details**: Implement helper function `pushChartToKV(orgId, garmentType)` to sync fit size charts from Neon Postgres into Cloudflare KV key `chart:{org_id}:{garment_type}` whenever size charts are created/updated.
   - **Target Date**: Jul 25, 2026
 
-- [ ] **TASK-R03: Wire KV Sync in Size Chart & Widget Management Routes**
+- [x] **TASK-R03: Wire KV Sync in Size Chart & Widget Management Routes**
   - **Files**: `shopify-app/app/routes/app.size-charts.tsx`, `shopify-app/app/routes/app.widget.tsx`
   - **Details**: Trigger `pushChartToKV()` in the size chart action handler after successful database mutation. Update widget activation/deactivation action to update `apikey:{key}` record's `widget_active` status in KV.
   - **Target Date**: Jul 25, 2026

@@ -94,8 +94,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 shop,
                 brandSlug,
                 apiKey: randomUUID(),
-                planTier: "free",
-                usageRemaining: 500,
+                planTier: "trial",
+                trialRequestsRemaining: 1000,
                 widgetActive: false,
             });
         }
