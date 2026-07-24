@@ -1,0 +1,13 @@
+{
+  "name": "Snug Size Recommender",
+  "button_text": "Find Your Size",
+  "modal_title": "Find Your Perfect Fit",
+  "modal_subtitle": "Tell us what fits you best in other brands",
+  "reference_brand_label": "Reference Brand",
+  "reference_size_label": "Your Size in this Brand",
+  "calculate_button": "Calculate My Size",
+  "snug_fit": "Snug Fit",
+  "relaxed_fit": "Relaxed Fit",
+  "boundary_title": "You sit right between two sizes!",
+  "recommended_size_label": "Recommended Size for You"
+}

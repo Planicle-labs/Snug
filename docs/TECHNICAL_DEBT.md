@@ -141,9 +141,8 @@ Every problem, gap, contradiction, and bug found during the full codebase audit 
 - `redirect_urls = ["https://example.com/api/auth"]` — same issue as above.
 - **Fix:** Update to `https://<railway-url>/auth/callback`.
 
-**F3. Theme App Extension is not scaffolded**
-- `shopify-app/extensions/` exists but contains only a `.gitkeep`. No extension has been generated via Shopify CLI. The storefront widget has no home.
-- **Fix:** Run `shopify app generate extension` to scaffold the Theme App Extension (TASK-R04).
+**F3. Theme App Extension scaffolded**
+- `shopify-app/extensions/snug-widget/` scaffolded with manifest, liquid app block, css, js, and locales (TASK-R04).
 
 **F4. Reference brand seeding scripts do not exist**
 - `packages/db/src/seed/anchors.ts` and `packages/db/src/seed/brands.ts` are referenced in task docs but the files do not exist. Without seed data the algorithm has nothing to run against.

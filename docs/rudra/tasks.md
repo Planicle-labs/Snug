@@ -41,7 +41,7 @@
 
 ## 2. Storefront Widget (Theme App Extension)
 
-- [ ] **TASK-R04: Scaffold Theme App Extension**
+- [x] **TASK-R04: Scaffold Theme App Extension**
   - **Directory**: `shopify-app/extensions/snug-widget/`
   - **Details**: Run Shopify CLI `shopify app generate extension` (theme app extension). Create app block liquid file `blocks/snug_widget.liquid`.
   - **Target Date**: Jul 26, 2026
