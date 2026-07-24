@@ -209,3 +209,27 @@ export const brandSizeCharts = pgTable(
     ),
   })
 );
+
+export const anthropometricAnchors = pgTable(
+  'anthropometric_anchors',
+  {
+    garmentType: text('garment_type').notNull(),
+    sizeLabel: text('size_label').notNull(),
+    chestBodyCm: numeric('chest_body_cm').notNull(),
+    shoulderBodyCm: numeric('shoulder_body_cm'),
+    heightCm: numeric('height_cm'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => ({
+    pk: uniqueIndex('anthropometric_anchors_pk').on(
+      table.garmentType,
+      table.sizeLabel
+    ),
+    garmentTypeCheck: check(
+      'anthropometric_anchors_garment_type_check',
+      sql`${table.garmentType} IN ('tshirt','shirt','polo','sweatshirt','hoodie','jacket','kurta','top')`
+    ),
+  })
+);
+

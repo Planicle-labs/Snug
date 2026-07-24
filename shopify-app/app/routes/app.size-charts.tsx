@@ -19,6 +19,7 @@ import db from "../db.server";
 import { organizations, fitSizeCharts } from "@snug/db";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { pushChartToKV } from "../lib/kv.server";
 
 const GARMENT_TYPES = [
     { label: "T-Shirt", value: "tshirt" },
@@ -108,6 +109,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 easeValueCm: easeValue,
                 easeSource: "explicit",
             });
+            await pushChartToKV(org.id, garmentType);
             return { success: true };
         } catch {
             return { error: "Failed to add size chart. It may already exist." };
@@ -118,7 +120,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         const chartId = formData.get("chartId") as string;
         
         if (chartId) {
-            await db.delete(fitSizeCharts).where(eq(fitSizeCharts.id, chartId));
+            const [chart] = await db
+                .select()
+                .from(fitSizeCharts)
+                .where(eq(fitSizeCharts.id, chartId))
+                .limit(1);
+
+            if (chart) {
+                await db.delete(fitSizeCharts).where(eq(fitSizeCharts.id, chartId));
+                await pushChartToKV(chart.orgId, chart.garmentType);
+            }
             return { deleted: true };
         }
     }
