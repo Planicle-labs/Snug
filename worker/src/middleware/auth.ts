@@ -9,7 +9,7 @@ export interface MerchantKVRecord{
 }
 
 export const authMiddleware = createMiddleware(async (ctx, next) => {
-  const apiKey = ctx.req.header("X-Snug-Key")
+  const apiKey = ctx.req.header("X-Snug-Key")?.trim();
   if (!apiKey) {
     return ctx.json({ error: "Unauthorized", message: "Missing API Key" }, 401)
   }

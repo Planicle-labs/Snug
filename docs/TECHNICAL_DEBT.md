@@ -79,6 +79,11 @@ Every problem, gap, contradiction, and bug found during the full codebase audit 
 - `worker/src/algorithm/sizing.ts` has not been created. The 9-step pure function, 5-signal confidence score, cross-fit penalty, and boundary case detection are fully specified in docs but unimplemented.
 - **Fix:** Implement `sizing.ts` and corresponding `sizing.test.ts`.
 
+**C8. Paid plan pricing and request limits undefined (No infinite request mechanism)**
+- Paid plan pricing tiers, request allowances, and Shopify usage billing limits are not yet defined.
+- Consequently, no limits or infinite request mechanisms are implemented for `plan_tier = 'paid'` merchants in `rateLimitMiddleware` or `UsageCounter` DO.
+- **Fix:** Once paid plan pricing and billing rules are finalized, implement paid-tier rate-limiting and overage billing enforcement in `rateLimit.ts` and `UsageCounter.ts`.
+
 ---
 
 ## D. Dashboard — Missing or Broken Features
