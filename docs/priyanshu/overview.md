@@ -65,7 +65,7 @@ Priyanshu owns the core computation, API endpoints, background cron jobs, databa
 
 ## 3. High-Level Delivery Milestones
 
-1. **Milestone P1**: Fix `UsageCounter` DO compile error, add milestone checkpoint triggers, and seed NIFT & 10 reference brands into Neon + KV.
-2. **Milestone P2**: Build and unit-test the pure 9-step sizing algorithm engine with boundary case detection.
+1. **Milestone P1**: Fix `UsageCounter` DO compile error and add milestone checkpoint triggers.
+2. **Milestone P2**: Build and unit-test the pure 9-step sizing algorithm engine with boundary case detection using isolated in-memory test mocks.
 3. **Milestone P3**: Wire `POST /v1/size` with KV lookups, `UsageCounter` DO checks, milestone `ctx.waitUntil()` DB sync, and `GET /v1/admin/usage` endpoint.
-4. **Milestone P4**: Implement daily DO -> Neon Postgres sync cron job and deploy Worker to Cloudflare production.
+4. **Milestone P4**: Perform deferred database seeding (NIFT anchors + 10 reference brand charts into Neon & KV), implement daily DO -> Neon Postgres sync cron job, and deploy Worker to Cloudflare production.

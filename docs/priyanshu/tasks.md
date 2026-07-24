@@ -2,37 +2,24 @@
 
 ---
 
-## 1. Database Seeding & Reference Data
+## 1. Worker Scaffolding & Durable Object Logic
 
-- [ ] **TASK-P01: Seed NIFT Anthropometric Anchors**
-  - **File**: `packages/db/src/seed/anchors.ts`
-  - **Details**: Insert NIFT 2020 male population average chest values (XS=82cm, S=86cm, M=91cm, L=96cm, XL=102cm, XXL=108cm) into `anthropometric_anchors`.
-
-- [ ] **TASK-P02: Seed 10 Reference Brand Size Charts**
-  - **File**: `packages/db/src/seed/brands.ts`
-  - **Details**: Populate `brand_size_charts` table with real measurements for 10 top brands (Uniqlo, Zara, H&M, Nike, Adidas, Snitch, Bewakoof, The Souled Store, Mango, Levis).
-  - **KV Push Script**: Add a script to populate `brand:{slug}:{garment}` keys in Cloudflare KV.
-
----
-
-## 2. Worker Scaffolding & Durable Object Logic
-
-- [ ] **TASK-P03: Complete UsageCounter Durable Object & Milestone Checkpoints**
+- [x] **TASK-P03: Complete UsageCounter Durable Object & Milestone Checkpoints**
   - **File**: `worker/src/durable-objects/UsageCounter.ts`
   - **Details**: Complete incomplete `if (body.action)` block (line 97), handling `check_and_decrement_trial` (1000 trial limit), `record_conversion`, `get_current_usage`, and `reset_billing_period`.
   - **Milestone Checkpoints**: When usage hits specific checkpoints (e.g. 100, 200, 300, 400, 500 requests used or 20%, 50%, 80%, 100%), return `milestone_crossed: true` in DO response to trigger non-blocking `ctx.waitUntil()` sync to Neon Postgres.
 
-- [ ] **TASK-P04: Hono Middleware Setup**
+- [x] **TASK-P04: Hono Middleware Setup**
   - **File**: `worker/src/middleware/auth.ts`, `worker/src/middleware/cors.ts`
   - **Details**: Implement API key lookup in KV (`apikey:{key}`) and Origin header validation for storefront requests. Return standard HTTP 401/422/429 JSON errors.
 
-- [ ] **TASK-P05: Edge Rate-Limiting & Quota Middleware**
+- [x] **TASK-P05: Edge Rate-Limiting & Quota Middleware**
   - **File**: `worker/src/middleware/rateLimit.ts`
   - **Details**: Call `UsageCounter` DO on each request to check and decrement trial request allowance atomically with sub-millisecond edge latency. If `milestone_crossed` is true, invoke non-blocking `ctx.waitUntil()` DB sync.
 
 ---
 
-## 3. Sizing Algorithm Engine
+## 2. Sizing Algorithm Engine
 
 - [ ] **TASK-P06: Core Sizing Algorithm Pure Function**
   - **File**: `worker/src/algorithm/sizing.ts`
@@ -53,7 +40,7 @@
 
 ---
 
-## 4. API Handlers & Endpoints
+## 3. API Handlers & Endpoints
 
 - [ ] **TASK-P08: `POST /v1/size` Endpoint Handler**
   - **File**: `worker/src/handlers/size.ts`
@@ -66,6 +53,19 @@
 - [ ] **TASK-P10: `GET /v1/product/:product_id` Mapping Lookup**
   - **File**: `worker/src/handlers/product.ts`
   - **Details**: Return whether a Shopify product is mapped to a garment type and active fit size chart.
+
+---
+
+## 4. Deferred Database Seeding & Reference Data
+
+- [ ] **TASK-P01: Seed NIFT Anthropometric Anchors**
+  - **File**: `packages/db/src/seed/anchors.ts`
+  - **Details**: Insert NIFT 2020 male population average chest values (XS=82cm, S=86cm, M=91cm, L=96cm, XL=102cm, XXL=108cm) into `anthropometric_anchors`. Deferred to pre-deployment integration phase.
+
+- [ ] **TASK-P02: Seed 10 Reference Brand Size Charts**
+  - **File**: `packages/db/src/seed/brands.ts`
+  - **Details**: Populate `brand_size_charts` table with real measurements for 10 top brands (Uniqlo, Zara, H&M, Nike, Adidas, Snitch, Bewakoof, The Souled Store, Mango, Levis).
+  - **KV Push Script**: Add a script to populate `brand:{slug}:{garment}` keys in Cloudflare KV. Deferred to pre-deployment integration phase.
 
 ---
 
