@@ -76,7 +76,7 @@
   - **Details**: Fetch real-time usage via `GET /v1/admin/usage`, display current plan tier (`trial` vs `paid`), render progress bar showing trial requests used out of 1000, and handle upgrade flow using Shopify Billing API. Add link to `app.tsx` navigation.
   - **Target Date**: Jul 27, 2026
 
-- [ ] **TASK-R09: Widget Visual Customizer**
+- [x] **TASK-R09: Widget Visual Customizer**
   - **File**: `shopify-app/app/routes/app.widget.tsx`
   - **Details**: Allow merchants to configure widget position, primary button background colors, text labels, and store settings in `widget_configs`.
   - **Target Date**: Jul 27, 2026
