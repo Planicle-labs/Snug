@@ -29,7 +29,7 @@ The system has three distinct runtime surfaces:
 | Cloudflare Worker | Receives prediction requests, authenticates via API key, runs sizing algorithm, enforces usage limits | Called by widget |
 | Remix dashboard | Embedded in Shopify Admin, merchant configuration and analytics | Merchants |
 
-These three surfaces share three pieces of infrastructure: Neon Postgres as the source of truth, Cloudflare KV as the hot-path cache and auth store, and Upstash Redis for usage cap enforcement and burst protection.
+These three surfaces share three pieces of infrastructure: Neon Postgres as the source of truth, Cloudflare KV as the hot-path cache, prediction cache, and auth store, and Cloudflare Durable Objects (`UsageCounter`) for sub-millisecond atomic quota enforcement.
 
 ---
 
@@ -51,12 +51,12 @@ These three surfaces share three pieces of infrastructure: Neon Postgres as the 
 | Router | Hono.js | The standard lightweight router built for the Workers runtime. Express and Fastify depend on Node.js APIs that do not exist in Workers. |
 | Language | TypeScript | The sizing algorithm involves precise arithmetic across multiple data fields. TypeScript catches shape mismatches between KV payloads and algorithm inputs at compile time not runtime. |
 
-### Cache and Auth Layer
+### Cache, Quota, and Auth Layer
 
 | Component | Technology | Why |
 |---|---|---|
-| Hot-path cache and API key store | Cloudflare KV | Sub-millisecond reads because KV data is colocated at the same edge node as the Worker. Stores brand size charts, merchant org records, and API key mappings for validation. |
-| Usage enforcement and burst limiting | Upstash Redis | The only option that is both atomic (INCR/DECR) and accessible over HTTP from Workers. Standard Redis uses TCP which Workers cannot open. KV has no atomic operations so cannot safely increment or decrement a counter under concurrent load. Redis is the enforcement gate for both monthly usage caps (atomic DECR) and per-minute burst limits (atomic INCR). |
+| Hot-path cache, prediction cache, and API key store | Cloudflare KV | Sub-millisecond reads because KV data is colocated at the same edge node as the Worker. Stores brand size charts, merchant org records, API key mappings, product mappings, and pre-computed prediction cache entries (`pred:{org_id}:...`) for instant < 2ms responses. |
+| Edge quota enforcement & trial tracking | Cloudflare Durable Objects (`UsageCounter`) | Dedicated single-threaded SQLite Durable Object instances executing atomic quota checks (`check_and_decrement_trial`) at the edge with sub-millisecond latency. Triggers non-blocking `ctx.executionCtx.waitUntil()` milestone syncs to Neon Postgres. |
 
 ### Database Layer
 

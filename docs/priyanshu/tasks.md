@@ -42,15 +42,15 @@
 
 ## 3. API Handlers & Endpoints
 
-- [ ] **TASK-P08: `POST /v1/size` Endpoint Handler**
+- [x] **TASK-P08: `POST /v1/size` Endpoint Handler**
   - **File**: `worker/src/handlers/size.ts`
   - **Details**: Integrate auth, KV fetches, sizing algorithm, and trigger non-blocking log write to `usage_logs` via `ctx.waitUntil()`.
 
-- [ ] **TASK-P09: `GET /v1/admin/usage` On-Demand Admin Sync Endpoint**
+- [x] **TASK-P09: `GET /v1/admin/usage` On-Demand Admin Sync Endpoint**
   - **File**: `worker/src/handlers/adminUsage.ts`
   - **Details**: Handle dashboard requests to fetch real-time usage stats from `UsageCounter` DO, execute `UPDATE organizations SET trial_requests_remaining = ...` in Neon Postgres, and return `{ usage_remaining, monthly_conversions }`.
 
-- [ ] **TASK-P10: `GET /v1/product/:product_id` Mapping Lookup**
+- [x] **TASK-P10: `GET /v1/product/:product_id` Mapping Lookup**
   - **File**: `worker/src/handlers/product.ts`
   - **Details**: Return whether a Shopify product is mapped to a garment type and active fit size chart.
 

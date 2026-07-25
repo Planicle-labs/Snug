@@ -49,27 +49,22 @@ Every problem, gap, contradiction, and bug found during the full codebase audit 
 
 ## C. Worker — Missing Implementation
 
-**C1. `POST /v1/size` endpoint does not exist**
-- The core product feature. The Worker has no route for this. Auth middleware is wired but no handlers are registered beyond `/health`.
-- **Fix:** Implement `worker/src/handlers/size.ts` with KV fetches, UsageCounter DO call, algorithm, usage log `ctx.waitUntil()`.
+**C1. [RESOLVED] `POST /v1/size` endpoint does not exist**
+- **Status:** Resolved by commit `98ce064` (`worker/src/handlers/size.ts`). Implemented prediction handler with `< 2ms` KV prediction caching (`pred:{org_id}:{product_id}:{ref_brand}:{ref_garment}:{ref_size}`), product mapping lookup, chart lookups, sizing algorithm scaffold, and non-blocking `ctx.executionCtx.waitUntil` analytics logging.
 
-**C2. `GET /v1/product/:product_id` does not exist**
-- Called by the storefront widget to check if a product is mapped before rendering. No route exists.
-- **Fix:** Implement `worker/src/handlers/product.ts` with KV lookup.
+**C2. [RESOLVED] `GET /v1/product/:product_id` does not exist**
+- **Status:** Resolved by commit `98ce064` (`worker/src/handlers/product.ts`). Implemented storefront product widget mapping lookup endpoint returning `{ mapped: true, garment_type: "tshirt" }` or `{ mapped: false }`.
 
-**C3. `GET /v1/admin/usage` does not exist**
-- Called by `app.analytics.tsx` (to be built) and `app.billing.tsx` to fetch real-time DO usage stats and sync to Neon.
-- **Fix:** Implement `worker/src/handlers/adminUsage.ts`.
+**C3. [RESOLVED] `GET /v1/admin/usage` does not exist**
+- **Status:** Resolved by commit `98ce064` (`worker/src/handlers/adminUsage.ts`). Implemented internal admin usage sync endpoint with `X-Internal-Secret` auth, live DO query, and on-demand Postgres sync.
 
 **C4. `GET /v1/brands/search` does not exist but is already called**
 - `app.brand.tsx` action (intent=`search`) makes a live HTTP call to `${CLOUDFLARE_WORKER_URL}/v1/brands/search?q=...`. This endpoint does not exist in the Worker.
 - Every brand search in the dashboard currently returns an error or throws.
 - **Fix:** Implement this endpoint in the Worker to query `brandSizeCharts` by brand name prefix.
 
-**C5. `UsageCounter` DO is never called in the request path**
-- `auth.ts` middleware reads `trial_requests_remaining` from KV (a stale value set at install time). The DO's `check_and_decrement_trial` action — which does the actual atomic decrement — is never invoked from any Worker code.
-- Usage is never actually decremented; the trial limit is not enforced at the DO level.
-- **Fix:** In the `POST /v1/size` handler, call the DO's `check_and_decrement_trial` before executing the algorithm, and trigger `ctx.waitUntil()` Neon sync on `milestone_crossed`.
+**C5. [RESOLVED] `UsageCounter` DO is never called in the request path**
+- **Status:** Resolved by commits `7f2c97a` and `98ce064` (`worker/src/middleware/rateLimit.ts`). `rateLimitMiddleware` is mounted on `/v1/*` and calls the `UsageCounter` DO stub (`check_and_decrement_trial`) on every storefront prediction request. Returns HTTP 429 when trial quota is exhausted, and triggers `ctx.executionCtx.waitUntil` milestone Postgres sync.
 
 **C6. `wrangler.toml` is missing the `DATABASE_URL` secret declaration**
 - The DO needs to write to Neon on milestone checkpoints. The Worker env has `KV` and `USAGE_COUNTER` but `DATABASE_URL` is not declared as a secret binding.

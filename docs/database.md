@@ -294,17 +294,18 @@ JSONB is used in two places: `widget_configs.config` for visual styling settings
 
 The Cloudflare Worker has a Neon connection string that grants only `INSERT` on `usage_logs`. It cannot read, update, or delete any row in any table. If the Worker's credentials are ever compromised, the attacker can write garbage log rows but cannot read merchant data, access tokens, or size chart information. The Remix dashboard app has a separate connection string with full access to all tables.
 
-### Rate limiting and usage cap enforcement are two separate systems
+### Quota enforcement and rate-limiting use Cloudflare Durable Objects
 
-Snug has two distinct limits that are often confused but require completely different infrastructure.
+Snug enforces trial quotas and rate limits using Cloudflare Durable Objects (`UsageCounter` DO) combined with Cloudflare KV.
 
-**Burst protection** is a short-term limit — no merchant can fire more than N requests per minute regardless of their plan. This prevents a single merchant from flooding the Worker during a flash sale and degrading performance for everyone else. Redis handles this via atomic INCR on a per-minute key that expires after 120 seconds. Redis is the right tool because the operation must be atomic (two simultaneous requests cannot both read the same count and both pass), it must be fast (sub-10ms on the critical path), and the data is genuinely ephemeral — minute-level counters have no value after they expire.
+**Atomic Edge Quota Enforcement (`UsageCounter` DO)**:
+- Every organization has a dedicated single-threaded `UsageCounter` Durable Object instance identified by `org_id`.
+- The DO executes atomic SQLite updates (`check_and_decrement_trial`) on the critical path in sub-milliseconds, guaranteeing that race conditions under heavy concurrent flash sales cannot bypass trial quotas.
+- When trial quota is exhausted, the DO returns `allowed: false` and the Worker returns HTTP 429 (`Too Many Requests`).
 
-**Monthly usage caps** are long-term limits — a merchant on the starter plan gets 1000 predictions per billing period. This is a business constraint that drives billing and must be accurate and persistent. `usage_remaining` on the organizations row is the source of truth, maintained by a cron job that reads `usage_logs` and writes back the current remaining count. KV mirrors this value so the Worker can read it in sub-millisecond without a Neon query on the critical path.
-
-The two systems work in sequence on every request: Redis burst check first, monthly cap check second. Passing both is required to proceed.
-
-**The cron job responsibility:** Runs on Railway every few minutes. For each active merchant it counts `usage_logs` rows where `created_at >= billing_period_start`, computes `plan_limit - count`, writes that number to `organizations.usage_remaining` in Neon, and writes the same value to `KV usage:{org_id}`. When a billing period rolls over, it resets `usage_remaining` to the full plan limit and updates `billing_period_start`.
+**Non-Blocking Milestone Database Sync (`waitUntil`)**:
+- When usage hits specific milestone checkpoints (e.g., 100, 200, 500 requests used), the DO sets `milestone_crossed: true`.
+- The Worker invokes `ctx.executionCtx.waitUntil(syncMilestoneToPostgres(...))` to flush remaining usage counters to Neon Postgres (`organizations.trial_requests_remaining`) in the background without blocking the shopper's HTTP response.
 
 ### `brand_size_charts` and `anthropometric_anchors` have no foreign key relationships
 

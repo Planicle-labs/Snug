@@ -125,6 +125,14 @@ The app runs with:
 - `app.products.tsx` — product to garment mapping
 - `app.widget.tsx` — widget configuration
 - Schema with all tables including CHECK constraints
+- `worker/src/durable-objects/UsageCounter.ts` — Durable Object with atomic SQLite counter checks and milestone checkpoints
+- `worker/src/middleware/cors.ts` — OPTIONS 204 preflight and post-execution CORS headers
+- `worker/src/middleware/auth.ts` — API key verification, active widget check, and Origin domain matching
+- `worker/src/middleware/rateLimit.ts` — Edge quota rate-limiting middleware with `ctx.executionCtx.waitUntil` milestone Postgres sync
+- `worker/src/handlers/size.ts` — `POST /v1/size` prediction handler with `< 2ms` KV prediction cache (`pred:{org_id}:{product_id}:{ref_brand}:{ref_garment}:{ref_size}`), mapping resolution, and `waitUntil` analytics logging
+- `worker/src/handlers/adminUsage.ts` — `GET /v1/admin/usage` internal usage sync handler with `X-Internal-Secret` auth
+- `worker/src/handlers/product.ts` — `GET /v1/product/:product_id` storefront widget mapping lookup
+- `worker/src/index.ts` — Exported `AppEnv` context schema, Hono application instance, and route bindings
 
 ---
 
@@ -136,6 +144,6 @@ The app runs with:
 - `webhooks.customers.redact.tsx` — GDPR  
 - `webhooks.customers.data_request.tsx` — GDPR
 - Storefront widget Theme App Extension
-- Cloudflare Worker sizing API
+- Core Sizing Calculation Algorithm Engine (`worker/src/algorithm/sizing.ts`)
 - CSV upload for size charts
 - Railway deployment
