@@ -46,7 +46,7 @@
   - **Details**: Run Shopify CLI `shopify app generate extension` (theme app extension). Create app block liquid file `blocks/snug_widget.liquid`.
   - **Target Date**: Jul 26, 2026
 
-- [ ] **TASK-R05: Storefront Widget Vanilla JS Bundle (< 10KB)**
+- [x] **TASK-R05: Storefront Widget Vanilla JS Bundle (< 10KB)**
   - **Directory**: `shopify-app/extensions/snug-widget/assets/`
   - **Details**: Write pure Vanilla JS modal/widget script:
     1. Read API key and product ID from page liquid context.
@@ -66,7 +66,7 @@
 
 ## 3. Analytics & Billing Dashboard Routes
 
-- [ ] **TASK-R07: Build Usage Analytics Dashboard with On-Demand Worker Sync**
+- [x] **TASK-R07: Build Usage Analytics Dashboard with On-Demand Worker Sync**
   - **File**: `shopify-app/app/routes/app.analytics.tsx`
   - **Details**: In route `loader`, call Priyanshu's `GET /v1/admin/usage?shop=...` endpoint to trigger real-time Durable Object sync to Neon Postgres. Display total recommendations count, conversion rate metric cards, top requested reference brands table, boundary case percentage, and predicted size distribution chart. Add link to `app.tsx` navigation.
   - **Target Date**: Jul 27, 2026
@@ -76,7 +76,7 @@
   - **Details**: Fetch real-time usage via `GET /v1/admin/usage`, display current plan tier (`trial` vs `paid`), render progress bar showing trial requests used out of 1000, and handle upgrade flow using Shopify Billing API. Add link to `app.tsx` navigation.
   - **Target Date**: Jul 27, 2026
 
-- [ ] **TASK-R09: Widget Visual Customizer**
+- [x] **TASK-R09: Widget Visual Customizer**
   - **File**: `shopify-app/app/routes/app.widget.tsx`
   - **Details**: Allow merchants to configure widget position, primary button background colors, text labels, and store settings in `widget_configs`.
   - **Target Date**: Jul 27, 2026
@@ -90,7 +90,7 @@
 
 ## 4. Webhooks, Compliance & Final Polish
 
-- [ ] **TASK-R10: Shop Redact Webhook**
+- [x] **TASK-R10: Shop Redact Webhook**
   - **File**: `shopify-app/app/routes/webhooks.shop.redact.tsx`
   - **Details**: Delete merchant records from Neon Postgres and purge `apikey:{key}` and `chart:{org_id}:*` keys from Cloudflare KV upon shop redaction.
   - **Target Date**: Jul 28, 2026
