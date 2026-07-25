@@ -66,7 +66,7 @@
 
 ## 3. Analytics & Billing Dashboard Routes
 
-- [ ] **TASK-R07: Build Usage Analytics Dashboard with On-Demand Worker Sync**
+- [x] **TASK-R07: Build Usage Analytics Dashboard with On-Demand Worker Sync**
   - **File**: `shopify-app/app/routes/app.analytics.tsx`
   - **Details**: In route `loader`, call Priyanshu's `GET /v1/admin/usage?shop=...` endpoint to trigger real-time Durable Object sync to Neon Postgres. Display total recommendations count, conversion rate metric cards, top requested reference brands table, boundary case percentage, and predicted size distribution chart. Add link to `app.tsx` navigation.
   - **Target Date**: Jul 27, 2026
