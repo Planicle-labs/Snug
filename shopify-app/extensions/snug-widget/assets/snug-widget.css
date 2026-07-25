@@ -34,7 +34,7 @@
   flex-shrink: 0;
 }
 
-/* Modal Overlay & Card */
+/* Modal Overlay & Container */
 .snug-modal-overlay {
   position: fixed;
   top: 0;
@@ -82,19 +82,22 @@
   right: 16px;
   background: transparent;
   border: none;
-  font-size: 20px;
+  font-size: 24px;
   cursor: pointer;
   color: #6b7280;
-  padding: 4px;
+  padding: 4px 8px;
   line-height: 1;
+  border-radius: 4px;
 }
 
 .snug-modal-close:hover {
   color: #111827;
+  background-color: #f3f4f6;
 }
 
 .snug-modal-header {
   margin-bottom: 20px;
+  padding-right: 28px;
 }
 
 .snug-modal-title {
@@ -132,7 +135,8 @@
   background-color: #ffffff;
   color: #111827;
   outline: none;
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
 }
 
 .snug-select:focus {
@@ -151,14 +155,23 @@
   border-radius: 6px;
   cursor: pointer;
   margin-top: 8px;
-  transition: background-color 0.15s ease;
+  transition: background-color 0.15s ease, transform 0.1s ease;
 }
 
 .snug-submit-btn:hover {
   background-color: #1f2937;
 }
 
-/* Recommendation Results */
+.snug-submit-btn:active {
+  transform: scale(0.99);
+}
+
+.snug-submit-btn:disabled {
+  background-color: #9ca3af;
+  cursor: not-allowed;
+}
+
+/* Result Cards & Badges */
 .snug-result-card {
   background-color: #f9fafb;
   border: 1px solid #e5e7eb;
@@ -166,6 +179,12 @@
   padding: 20px;
   text-align: center;
   margin-top: 16px;
+  animation: snug-fade-in 0.3s ease;
+}
+
+@keyframes snug-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .snug-size-badge {
@@ -178,52 +197,92 @@
   border-radius: 8px;
   border: 2px solid #e5e7eb;
   margin: 12px 0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
 /* Two-Size Boundary Fit Selector */
+.snug-boundary-heading {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 4px 0;
+}
+
+.snug-boundary-subtext {
+  font-size: 12px;
+  color: #6b7280;
+  margin: 0 0 14px 0;
+}
+
 .snug-boundary-container {
   display: flex;
   gap: 12px;
-  margin: 16px 0;
+  margin: 12px 0;
 }
 
 .snug-boundary-option {
   flex: 1;
   border: 2px solid #e5e7eb;
   border-radius: 8px;
-  padding: 12px;
+  padding: 14px 10px;
   cursor: pointer;
   text-align: center;
   transition: all 0.2s ease;
   background: #ffffff;
+  user-select: none;
 }
 
 .snug-boundary-option:hover {
   border-color: #9ca3af;
+  background-color: #f8fafc;
 }
 
 .snug-boundary-option.snug-selected {
   border-color: #2563eb;
   background-color: #eff6ff;
+  box-shadow: 0 0 0 1px #2563eb;
+}
+
+.snug-fit-size {
+  font-size: 24px;
+  font-weight: 800;
+  color: #111827;
+}
+
+.snug-boundary-option.snug-selected .snug-fit-size {
+  color: #1d4ed8;
 }
 
 .snug-fit-type {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   text-transform: uppercase;
+  letter-spacing: 0.5px;
   color: #4b5563;
   margin-top: 4px;
 }
 
+.snug-boundary-option.snug-selected .snug-fit-type {
+  color: #2563eb;
+}
+
+.snug-fit-guidance {
+  font-size: 12px;
+  color: #4b5563;
+  margin-top: 10px;
+  font-style: italic;
+}
+
+/* Confidence Indicator Badges */
 .snug-confidence-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   font-size: 12px;
-  font-weight: 500;
-  padding: 4px 8px;
+  font-weight: 600;
+  padding: 4px 10px;
   border-radius: 12px;
-  margin-top: 8px;
+  margin-top: 12px;
 }
 
 .snug-confidence-high {
@@ -241,11 +300,11 @@
   color: #991b1b;
 }
 
-/* Utility / Loading / Error */
+/* Loading & Error States */
 .snug-loading-spinner {
   display: inline-block;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border: 3px solid rgba(0,0,0,0.1);
   border-radius: 50%;
   border-top-color: #111827;
@@ -256,12 +315,24 @@
   to { transform: rotate(360deg); }
 }
 
-.snug-error-msg {
-  color: #dc2626;
-  font-size: 13px;
+.snug-error-card {
   background-color: #fef2f2;
   border: 1px solid #fecaca;
-  padding: 10px;
-  border-radius: 6px;
-  margin-top: 12px;
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+  margin-top: 16px;
+}
+
+.snug-error-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #991b1b;
+  margin: 0 0 4px 0;
+}
+
+.snug-error-desc {
+  font-size: 12px;
+  color: #b91c1c;
+  margin: 0;
 }

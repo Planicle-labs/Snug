@@ -7,6 +7,7 @@
   data-product-id="{{ product.id }}"
   data-product-title="{{ product.title | escape }}"
   data-shop-domain="{{ shop.permanent_domain }}"
+  data-api-key="{{ block.settings.api_key }}"
   data-worker-url="{{ block.settings.worker_url | default: 'https://snug-worker.workers.dev' }}"
   data-button-text="{{ block.settings.button_text | default: 'Find Your Size' }}"
   data-button-color="{{ block.settings.button_color | default: '#000000' }}"
@@ -15,7 +16,7 @@
   <button 
     type="button" 
     class="snug-trigger-btn"
-    style="background-color: {{ block.settings.button_color | default: '#000000' }}; color: {{ block.settings.button_text_color | default: '#ffffff' }};"
+    style="background-color: {{ block.settings.button_color | default: '#000000' }}; color: {{ block.settings.button_text_color | default: '#ffffff' }}; display: none;"
   >
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="snug-icon">
       <path d="M20.38 3.46L16 2a4 4 0 01-8 0L3.62 3.46a2 2 0 00-1.34 2.23l.58 3.47a1 1 0 00.99.84H6v10a2 2 0 002 2h8a2 2 0 002-2V10h2.15a1 1 0 00.99-.84l.58-3.47a2 2 0 00-1.34-2.23z"/>
@@ -31,6 +32,12 @@
   "stylesheet": "snug-widget.css",
   "javascript": "snug-widget.js",
   "settings": [
+    {
+      "type": "text",
+      "id": "api_key",
+      "label": "Snug API Key",
+      "default": ""
+    },
     {
       "type": "text",
       "id": "button_text",

@@ -46,7 +46,7 @@
   - **Details**: Run Shopify CLI `shopify app generate extension` (theme app extension). Create app block liquid file `blocks/snug_widget.liquid`.
   - **Target Date**: Jul 26, 2026
 
-- [ ] **TASK-R05: Storefront Widget Vanilla JS Bundle (< 10KB)**
+- [x] **TASK-R05: Storefront Widget Vanilla JS Bundle (< 10KB)**
   - **Directory**: `shopify-app/extensions/snug-widget/assets/`
   - **Details**: Write pure Vanilla JS modal/widget script:
     1. Read API key and product ID from page liquid context.
