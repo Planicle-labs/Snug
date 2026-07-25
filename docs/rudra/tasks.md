@@ -90,7 +90,7 @@
 
 ## 4. Webhooks, Compliance & Final Polish
 
-- [ ] **TASK-R10: Shop Redact Webhook**
+- [x] **TASK-R10: Shop Redact Webhook**
   - **File**: `shopify-app/app/routes/webhooks.shop.redact.tsx`
   - **Details**: Delete merchant records from Neon Postgres and purge `apikey:{key}` and `chart:{org_id}:*` keys from Cloudflare KV upon shop redaction.
   - **Target Date**: Jul 28, 2026

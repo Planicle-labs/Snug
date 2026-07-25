@@ -1,5 +1,5 @@
 import db from "../db.server";
-import { fitSizeCharts } from "@snug/db";
+import { fitSizeCharts } from "@conveaux/db/schema";
 import { eq, and } from "drizzle-orm";
 
 const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -62,6 +62,8 @@ export async function kvDelete(key: string): Promise<boolean> {
 
 export async function pushApiKeyToKV(payload: MerchantKVPayload) {
   const key = `apikey:${payload.api_key}`;
+  const shopKey = `shop:${payload.shop}`;
+  await kvPut(shopKey, { org_id: payload.org_id, api_key: payload.api_key });
   return kvPut(key, payload);
 }
 
@@ -96,4 +98,25 @@ export async function pushChartToKV(orgId: string, garmentType: string) {
   }));
 
   return kvPut(key, kvData);
+}
+
+export async function purgeMerchantFromKV(orgId: string, apiKey?: string | null, shop?: string | null) {
+  const deletePromises: Promise<boolean>[] = [];
+
+  if (apiKey) {
+    deletePromises.push(kvDelete(`apikey:${apiKey}`));
+  }
+  if (shop) {
+    deletePromises.push(kvDelete(`shop:${shop}`));
+  }
+  deletePromises.push(kvDelete(`merchant:${orgId}:mappings`));
+
+  const COMMON_GARMENTS = ['tshirt', 'shirt', 'hoodie', 'jacket', 'pants', 'jeans', 'shorts', 'dress'];
+  COMMON_GARMENTS.forEach((g) => {
+    deletePromises.push(kvDelete(`chart:${orgId}:${g}`));
+  });
+
+  const results = await Promise.all(deletePromises);
+  console.log(`[KV Purge] Purged KV records for org ${orgId}: ${results.filter(Boolean).length} keys deleted.`);
+  return true;
 }
