@@ -18,7 +18,7 @@ const shopify = shopifyApp({
   scopes: process.env.SCOPES?.split(","),
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
-  sessionStorage: new DrizzleSessionStoragePostgres(db, sessions),
+  sessionStorage: new DrizzleSessionStoragePostgres(db as any, sessions as any),
   distribution: AppDistribution.AppStore,
   future: {
     expiringOfflineAccessTokens: true,
@@ -35,16 +35,18 @@ const shopify = shopifyApp({
       }
 
       const shop = session.shop;
-      const [existingOrg] = await db
+      const dbClient = db as any;
+      const orgTable = organizations as any;
+      const [existingOrg] = await dbClient
         .select()
-        .from(organizations)
-        .where(eq(organizations.shop, shop))
+        .from(orgTable)
+        .where(eq(orgTable.shop, shop))
         .limit(1);
 
       if (!existingOrg) {
         const apiKey = randomUUID();
-        const [newOrg] = await db
-          .insert(organizations)
+        const [newOrg] = await dbClient
+          .insert(orgTable)
           .values({
             shop,
             apiKey,
@@ -55,14 +57,15 @@ const shopify = shopifyApp({
           })
           .returning();
 
-        if (newOrg && newOrg.apiKey) {
+        const newOrgRecord = newOrg as Record<string, any>;
+        if (newOrgRecord && newOrgRecord.apiKey) {
           await pushApiKeyToKV({
-            api_key: newOrg.apiKey,
-            org_id: newOrg.id,
-            shop: newOrg.shop,
-            plan_tier: newOrg.planTier as "trial" | "paid",
-            trial_requests_remaining: newOrg.trialRequestsRemaining,
-            widget_active: newOrg.widgetActive,
+            api_key: String(newOrgRecord.apiKey),
+            org_id: String(newOrgRecord.id),
+            shop: String(newOrgRecord.shop),
+            plan_tier: (newOrgRecord.planTier || "trial") as "trial" | "paid",
+            trial_requests_remaining: Number(newOrgRecord.trialRequestsRemaining ?? 1000),
+            widget_active: Boolean(newOrgRecord.widgetActive),
           });
         }
       }

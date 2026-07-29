@@ -19,7 +19,7 @@ import {
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { organizations, widgetConfigs } from "@conveaux/db/schema";
+import { organizations, widgetConfigs } from "@snug/db";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { pushApiKeyToKV } from "../lib/kv.server";
@@ -33,10 +33,14 @@ const POSITION_OPTIONS = [
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
 
-  const [org] = await db
+  const dbClient = db as any;
+  const orgTable = organizations as any;
+  const widgetConfigsTable = widgetConfigs as any;
+
+  const [org] = await dbClient
     .select()
-    .from(organizations)
-    .where(eq(organizations.shop, session.shop))
+    .from(orgTable)
+    .where(eq(orgTable.shop, session.shop))
     .limit(1);
 
   if (!org) {
@@ -48,16 +52,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     };
   }
 
-  const [existingConfig] = await db
+  const [existingConfig] = await dbClient
     .select()
-    .from(widgetConfigs)
-    .where(eq(widgetConfigs.orgId, org.id))
+    .from(widgetConfigsTable)
+    .where(eq(widgetConfigsTable.orgId, org.id))
     .limit(1);
 
   return {
-    widgetActive: org.widgetActive || false,
-    brandSlug: org.brandSlug,
-    config: existingConfig || null,
+    widgetActive: Boolean(org.widgetActive),
+    brandSlug: (org.brandSlug as string) || null,
+    config: (existingConfig as Record<string, any>) || null,
     shop: session.shop,
   };
 };
@@ -65,14 +69,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
+  const dbClient = db as any;
+  const orgTable = organizations as any;
+  const widgetConfigsTable = widgetConfigs as any;
 
   const formData = await request.formData();
   const intent = formData.get("intent");
 
-  const [org] = await db
+  const [org] = await dbClient
     .select()
-    .from(organizations)
-    .where(eq(organizations.shop, shop))
+    .from(orgTable)
+    .where(eq(orgTable.shop, shop))
     .limit(1);
 
   if (!org) {
@@ -80,18 +87,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   if (intent === "activate") {
-    await db
-      .update(organizations)
+    await dbClient
+      .update(orgTable)
       .set({ widgetActive: true, updatedAt: new Date() })
-      .where(eq(organizations.shop, shop));
+      .where(eq(orgTable.shop, shop));
 
     if (org.apiKey) {
       await pushApiKeyToKV({
-        api_key: org.apiKey,
-        org_id: org.id,
-        shop: org.shop,
-        plan_tier: org.planTier as "trial" | "paid",
-        trial_requests_remaining: org.trialRequestsRemaining,
+        api_key: String(org.apiKey),
+        org_id: String(org.id),
+        shop: String(org.shop),
+        plan_tier: (org.planTier || "trial") as "trial" | "paid",
+        trial_requests_remaining: Number(org.trialRequestsRemaining ?? 1000),
         widget_active: true,
       });
     }
@@ -100,18 +107,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   if (intent === "deactivate") {
-    await db
-      .update(organizations)
+    await dbClient
+      .update(orgTable)
       .set({ widgetActive: false, updatedAt: new Date() })
-      .where(eq(organizations.shop, shop));
+      .where(eq(orgTable.shop, shop));
 
     if (org.apiKey) {
       await pushApiKeyToKV({
-        api_key: org.apiKey,
-        org_id: org.id,
-        shop: org.shop,
-        plan_tier: org.planTier as "trial" | "paid",
-        trial_requests_remaining: org.trialRequestsRemaining,
+        api_key: String(org.apiKey),
+        org_id: String(org.id),
+        shop: String(org.shop),
+        plan_tier: (org.planTier || "trial") as "trial" | "paid",
+        trial_requests_remaining: Number(org.trialRequestsRemaining ?? 1000),
         widget_active: false,
       });
     }
@@ -127,10 +134,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const showConfidence = formData.get("showConfidence") === "on";
     const showReasoning = formData.get("showReasoning") === "on";
 
-    const [existing] = await db
+    const [existing] = await dbClient
       .select()
-      .from(widgetConfigs)
-      .where(eq(widgetConfigs.orgId, org.id))
+      .from(widgetConfigsTable)
+      .where(eq(widgetConfigsTable.orgId, org.id))
       .limit(1);
 
     const configData = {
@@ -143,17 +150,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     };
 
     if (existing) {
-      await db
-        .update(widgetConfigs)
+      await dbClient
+        .update(widgetConfigsTable)
         .set({
           position,
           isEnabled: true,
           config: configData,
           updatedAt: new Date(),
         })
-        .where(eq(widgetConfigs.orgId, org.id));
+        .where(eq(widgetConfigsTable.orgId, org.id));
     } else {
-      await db.insert(widgetConfigs).values({
+      await dbClient.insert(widgetConfigsTable).values({
         id: randomUUID(),
         orgId: org.id,
         position,
@@ -249,7 +256,7 @@ export default function WidgetCustomizer() {
                   <Text as="p" variant="bodyMd">
                     Please complete your reference brand setup before activating the widget on product pages.
                   </Text>
-                  <Box paddingBefore="200">
+                  <Box paddingBlockStart="200">
                     <Button url="/app/brand" variant="plain">
                       Go to Brand Setup
                     </Button>
@@ -264,7 +271,7 @@ export default function WidgetCustomizer() {
         <Layout.Section>
           <Grid>
             {/* Left Column: Controls */}
-            <Grid.Cell columnSpan={{ xs: 12, sm: 6, md: 6, lg: 6, xl: 6 }}>
+            <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
               <Card>
                 <BlockStack gap="400">
                   <Text as="h2" variant="headingMd">Visual & Layout Settings</Text>
@@ -328,7 +335,7 @@ export default function WidgetCustomizer() {
                       <input type="hidden" name="showConfidence" value={showConfidence ? "on" : ""} />
                       <input type="hidden" name="showReasoning" value={showReasoning ? "on" : ""} />
 
-                      <Box paddingBefore="200">
+                      <Box paddingBlockStart="200">
                         <Button variant="primary" submit loading={isSubmitting}>
                           Save Customizer Settings
                         </Button>
@@ -340,7 +347,7 @@ export default function WidgetCustomizer() {
             </Grid.Cell>
 
             {/* Right Column: Live Interactive Preview */}
-            <Grid.Cell columnSpan={{ xs: 12, sm: 6, md: 6, lg: 6, xl: 6 }}>
+            <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
               <Card>
                 <BlockStack gap="400">
                   <InlineStack align="space-between">
@@ -371,7 +378,7 @@ export default function WidgetCustomizer() {
                     background: "#ffffff",
                   }}>
                     <BlockStack gap="300">
-                      <Text variant="headingSm" as="p" color="subdued">
+                      <Text variant="headingSm" as="p" tone="subdued">
                         Mock Product Page
                       </Text>
                       
@@ -516,7 +523,7 @@ export default function WidgetCustomizer() {
                             <Text variant="bodyMd" fontWeight="bold" as="p">
                               You sit right between two sizes!
                             </Text>
-                            <Text variant="bodyXs" color="subdued" as="p">
+                            <Text variant="bodyXs" tone="subdued" as="p">
                               Choose your preferred fit style:
                             </Text>
                             <div style={{ display: "flex", gap: "8px" }}>
@@ -528,7 +535,7 @@ export default function WidgetCustomizer() {
                                 background: "#eff6ff",
                               }}>
                                 <Text variant="headingMd" as="h4">M</Text>
-                                <Text variant="bodyXs" color="subdued" as="p">Snug Fit</Text>
+                                <Text variant="bodyXs" tone="subdued" as="p">Snug Fit</Text>
                               </div>
                               <div style={{
                                 flex: 1,
@@ -538,16 +545,16 @@ export default function WidgetCustomizer() {
                                 background: "#ffffff",
                               }}>
                                 <Text variant="headingMd" as="h4">L</Text>
-                                <Text variant="bodyXs" color="subdued" as="p">Relaxed Fit</Text>
+                                <Text variant="bodyXs" tone="subdued" as="p">Relaxed Fit</Text>
                               </div>
                             </div>
                             {showConfidence && (
-                              <Badge status="success">● High Confidence (88%)</Badge>
+                              <Badge tone="success">● High Confidence (88%)</Badge>
                             )}
                           </BlockStack>
                         ) : (
                           <BlockStack gap="100">
-                            <Text variant="bodySm" color="subdued" as="p">
+                            <Text variant="bodySm" tone="subdued" as="p">
                               Recommended Size for You
                             </Text>
                             <div style={{
@@ -564,12 +571,12 @@ export default function WidgetCustomizer() {
                               M
                             </div>
                             {showReasoning && (
-                              <Text variant="bodyXs" color="subdued" as="p">
+                              <Text variant="bodyXs" tone="subdued" as="p">
                                 Fits well based on chest measurement alignment
                               </Text>
                             )}
                             {showConfidence && (
-                              <Badge status="success">● High Confidence Match</Badge>
+                              <Badge tone="success">● High Confidence Match</Badge>
                             )}
                           </BlockStack>
                         )}

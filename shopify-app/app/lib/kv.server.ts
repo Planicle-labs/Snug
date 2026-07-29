@@ -1,5 +1,5 @@
 import db from "../db.server";
-import { fitSizeCharts } from "@conveaux/db/schema";
+import { fitSizeCharts } from "@snug/db";
 import { eq, and } from "drizzle-orm";
 
 const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -68,13 +68,16 @@ export async function pushApiKeyToKV(payload: MerchantKVPayload) {
 }
 
 export async function pushChartToKV(orgId: string, garmentType: string) {
-  const charts = await db
+  const dbClient = db as any;
+  const fitSizeChartsTable = fitSizeCharts as any;
+
+  const charts = await dbClient
     .select()
-    .from(fitSizeCharts)
+    .from(fitSizeChartsTable)
     .where(
       and(
-        eq(fitSizeCharts.orgId, orgId),
-        eq(fitSizeCharts.garmentType, garmentType)
+        eq(fitSizeChartsTable.orgId, orgId),
+        eq(fitSizeChartsTable.garmentType, garmentType)
       )
     );
 
@@ -84,7 +87,7 @@ export async function pushChartToKV(orgId: string, garmentType: string) {
     return kvDelete(key);
   }
 
-  const kvData = charts.map((c) => ({
+  const kvData = charts.map((c: any) => ({
     size_label: c.sizeLabel,
     fit_type: c.fitType,
     chest_min_cm: Number(c.chestMinCm),

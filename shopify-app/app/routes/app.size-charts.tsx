@@ -41,21 +41,24 @@ const FIT_TYPES = [
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const { session } = await authenticate.admin(request);
     const shop = session.shop;
+    const dbClient = db as any;
+    const orgTable = organizations as any;
+    const fitSizeChartsTable = fitSizeCharts as any;
 
-    const [org] = await db
+    const [org] = await dbClient
         .select()
-        .from(organizations)
-        .where(eq(organizations.shop, shop))
+        .from(orgTable)
+        .where(eq(orgTable.shop, shop))
         .limit(1);
 
     if (!org) {
         return { sizeCharts: [], hasOrg: false };
     }
 
-    const sizeCharts = await db
+    const sizeCharts = await dbClient
         .select()
-        .from(fitSizeCharts)
-        .where(eq(fitSizeCharts.orgId, org.id));
+        .from(fitSizeChartsTable)
+        .where(eq(fitSizeChartsTable.orgId, org.id));
 
     return { sizeCharts, hasOrg: true };
 };
@@ -63,6 +66,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export const action = async ({ request }: ActionFunctionArgs) => {
     const { session } = await authenticate.admin(request);
     const shop = session.shop;
+    const dbClient = db as any;
+    const orgTable = organizations as any;
+    const fitSizeChartsTable = fitSizeCharts as any;
 
     const formData = await request.formData();
     const intent = formData.get("intent");
@@ -83,10 +89,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             return { error: "Please fill in all required fields." };
         }
 
-        const [org] = await db
+        const [org] = await dbClient
             .select()
-            .from(organizations)
-            .where(eq(organizations.shop, shop))
+            .from(orgTable)
+            .where(eq(orgTable.shop, shop))
             .limit(1);
 
         if (!org) {
@@ -94,7 +100,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }
 
         try {
-            await db.insert(fitSizeCharts).values({
+            await dbClient.insert(fitSizeChartsTable).values({
                 id: randomUUID(),
                 orgId: org.id,
                 garmentType,
@@ -120,14 +126,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         const chartId = formData.get("chartId") as string;
         
         if (chartId) {
-            const [chart] = await db
+            const [chart] = await dbClient
                 .select()
-                .from(fitSizeCharts)
-                .where(eq(fitSizeCharts.id, chartId))
+                .from(fitSizeChartsTable)
+                .where(eq(fitSizeChartsTable.id, chartId))
                 .limit(1);
 
             if (chart) {
-                await db.delete(fitSizeCharts).where(eq(fitSizeCharts.id, chartId));
+                await dbClient.delete(fitSizeChartsTable).where(eq(fitSizeChartsTable.id, chartId));
                 await pushChartToKV(chart.orgId, chart.garmentType);
             }
             return { deleted: true };
@@ -330,7 +336,7 @@ export default function SizeCharts() {
                                 </Text>
                             ) : (
                                 <BlockStack gap="200">
-                                    {sizeCharts.map((chart) => (
+                                    {sizeCharts.map((chart: any) => (
                                         <InlineStack key={chart.id} align="space-between">
                                             <InlineStack gap="200">
                                                 <Text as="span" fontWeight="medium">{chart.garmentType}</Text>

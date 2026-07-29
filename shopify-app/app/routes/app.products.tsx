@@ -30,29 +30,33 @@ const GARMENT_TYPES = [
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const { session } = await authenticate.admin(request);
     const shop = session.shop;
+    const dbClient = db as any;
+    const orgTable = organizations as any;
+    const fitSizeChartsTable = fitSizeCharts as any;
+    const garmentMappingsTable = garmentMappings as any;
 
-    const [org] = await db
+    const [org] = await dbClient
         .select()
-        .from(organizations)
-        .where(eq(organizations.shop, shop))
+        .from(orgTable)
+        .where(eq(orgTable.shop, shop))
         .limit(1);
 
     if (!org) {
         return { mappings: [], garmentTypes: [], hasOrg: false, hasSizeCharts: false };
     }
 
-    const [chartCount] = await db
+    const [chartCount] = await dbClient
         .select({ count: sql<number>`count(*)` })
-        .from(fitSizeCharts)
-        .where(eq(fitSizeCharts.orgId, org.id))
+        .from(fitSizeChartsTable)
+        .where(eq(fitSizeChartsTable.orgId, org.id))
         .limit(1);
 
-    const hasSizeCharts = (chartCount?.count ?? 0) > 0;
+    const hasSizeCharts = Number(chartCount?.count ?? 0) > 0;
 
-    const mappings = await db
+    const mappings = await dbClient
         .select()
-        .from(garmentMappings)
-        .where(eq(garmentMappings.orgId, org.id));
+        .from(garmentMappingsTable)
+        .where(eq(garmentMappingsTable.orgId, org.id));
     
     return { 
         mappings, 
@@ -65,6 +69,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export const action = async ({ request }: ActionFunctionArgs) => {
     const { session } = await authenticate.admin(request);
     const shop = session.shop;
+    const dbClient = db as any;
+    const orgTable = organizations as any;
+    const garmentMappingsTable = garmentMappings as any;
 
     const formData = await request.formData();
     const intent = formData.get("intent");
@@ -77,29 +84,29 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             return { error: "Please select a product and garment type." };
         }
 
-        const [org] = await db
+        const [org] = await dbClient
             .select()
-            .from(organizations)
-            .where(eq(organizations.shop, shop))
+            .from(orgTable)
+            .where(eq(orgTable.shop, shop))
             .limit(1);
 
         if (!org) {
             return { error: "Organization not found." };
         }
 
-        const [existing] = await db
+        const [existing] = await dbClient
             .select()
-            .from(garmentMappings)
-            .where(eq(garmentMappings.shopifyProductId, productId))
+            .from(garmentMappingsTable)
+            .where(eq(garmentMappingsTable.shopifyProductId, productId))
             .limit(1);
 
         if (existing) {
-            await db
-                .update(garmentMappings)
+            await dbClient
+                .update(garmentMappingsTable)
                 .set({ garmentType, updatedAt: new Date() })
-                .where(eq(garmentMappings.shopifyProductId, productId));
+                .where(eq(garmentMappingsTable.shopifyProductId, productId));
         } else {
-            await db.insert(garmentMappings).values({
+            await dbClient.insert(garmentMappingsTable).values({
                 id: randomUUID(),
                 orgId: org.id,
                 shopifyProductId: productId,
@@ -114,7 +121,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         const mappingId = formData.get("mappingId") as string;
         
         if (mappingId) {
-            await db.delete(garmentMappings).where(eq(garmentMappings.id, mappingId));
+            await dbClient.delete(garmentMappingsTable).where(eq(garmentMappingsTable.id, mappingId));
             return { deleted: true };
         }
     }
@@ -238,7 +245,7 @@ export default function Products() {
                                 </Text>
                             ) : (
                                 <BlockStack gap="200">
-                                    {mappings.map((row) => (
+                                    {mappings.map((row: any) => (
                                         <InlineStack key={row.id} align="space-between">
                                             <Text as="span">{row.shopifyProductId}</Text>
                                             <InlineStack gap="200">
