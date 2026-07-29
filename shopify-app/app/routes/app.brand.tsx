@@ -22,11 +22,13 @@ import { randomUUID } from "crypto";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const { session } = await authenticate.admin(request);
     const shop = session.shop;
+    const dbClient = db as any;
+    const orgTable = organizations as any;
 
-    const [org] = await db
+    const [org] = await dbClient
         .select()
-        .from(organizations)
-        .where(eq(organizations.shop, shop))
+        .from(orgTable)
+        .where(eq(orgTable.shop, shop))
         .limit(1);
 
     return {
@@ -38,6 +40,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export const action = async ({ request }: ActionFunctionArgs) => {
     const { session } = await authenticate.admin(request);
     const shop = session.shop;
+    const dbClient = db as any;
+    const orgTable = organizations as any;
+    const brandRequestsTable = brandRequests as any;
 
     const formData = await request.formData();
     const intent = formData.get("intent");
@@ -78,19 +83,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             return { error: "Please select a brand." };
         }
 
-        const [existing] = await db
+        const [existing] = await dbClient
             .select()
-            .from(organizations)
-            .where(eq(organizations.shop, shop))
+            .from(orgTable)
+            .where(eq(orgTable.shop, shop))
             .limit(1);
 
         if (existing) {
-            await db
-                .update(organizations)
+            await dbClient
+                .update(orgTable)
                 .set({ brandSlug, updatedAt: new Date() })
-                .where(eq(organizations.shop, shop));
+                .where(eq(orgTable.shop, shop));
         } else {
-            await db.insert(organizations).values({
+            await dbClient.insert(orgTable).values({
                 shop,
                 brandSlug,
                 apiKey: randomUUID(),
@@ -111,17 +116,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             return { error: "Please enter the brand name." };
         }
 
-        const [org] = await db
+        const [org] = await dbClient
             .select()
-            .from(organizations)
-            .where(eq(organizations.shop, shop))
+            .from(orgTable)
+            .where(eq(orgTable.shop, shop))
             .limit(1);
 
         if (!org) {
             return { error: "Organization not found. Please reinstall the app." };
         }
 
-        await db.insert(brandRequests).values({
+        await dbClient.insert(brandRequestsTable).values({
             id: randomUUID(),
             orgId: org.id,
             brandName: brandName.trim(),

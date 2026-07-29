@@ -16,25 +16,30 @@ import {
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { organizations, usageLogs, fitSizeCharts, conversionEvents } from "@conveaux/db/schema";
-import { eq, sql, desc, count } from "drizzle-orm";
+import { organizations, usageLogs, fitSizeCharts, conversionEvents } from "@snug/db";
+import { eq, and, sql, desc, count } from "drizzle-orm";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
+  const dbClient = db as any;
+  const orgTable = organizations as any;
+  const usageLogsTable = usageLogs as any;
+  const fitSizeChartsTable = fitSizeCharts as any;
+  const conversionEventsTable = conversionEvents as any;
 
   // 1. Fetch merchant organization record
-  const orgs = await db
+  const orgs = await dbClient
     .select()
-    .from(organizations)
-    .where(eq(organizations.shop, shop))
+    .from(orgTable)
+    .where(eq(orgTable.shop, shop))
     .limit(1);
 
   if (orgs.length === 0) {
     throw new Response("Organization not found for shop", { status: 404 });
   }
 
-  const org = orgs[0];
+  const org = orgs[0] as Record<string, any>;
 
   // 2. Trigger on-demand Worker sync to Durable Objects / Neon
   const workerUrl = process.env.WORKER_URL || "https://snug-worker.workers.dev";
@@ -54,81 +59,81 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   // 3. Query Analytics Metrics from Neon DB
   // A. Total recommendations
-  const totalLogsRes = await db
+  const totalLogsRes = await dbClient
     .select({ value: count() })
-    .from(usageLogs)
-    .where(eq(usageLogs.orgId, org.id));
-  const totalRecommendations = totalLogsRes[0]?.value || 0;
+    .from(usageLogsTable)
+    .where(eq(usageLogsTable.orgId, org.id));
+  const totalRecommendations = Number(totalLogsRes[0]?.value || 0);
 
   // B. Boundary cases count
-  const boundaryLogsRes = await db
+  const boundaryLogsRes = await dbClient
     .select({ value: count() })
-    .from(usageLogs)
-    .where(sql`${usageLogs.orgId} = ${org.id} AND ${usageLogs.isBoundaryCase} = true`);
-  const boundaryCount = boundaryLogsRes[0]?.value || 0;
+    .from(usageLogsTable)
+    .where(and(eq(usageLogsTable.orgId, org.id), eq(usageLogsTable.isBoundaryCase, true)));
+  const boundaryCount = Number(boundaryLogsRes[0]?.value || 0);
   const boundaryPercentage = totalRecommendations > 0 
     ? Math.round((boundaryCount / totalRecommendations) * 100) 
     : 0;
 
   // C. Conversions count & rate
-  const conversionsRes = await db
+  const conversionsRes = await dbClient
     .select({ value: count() })
-    .from(conversionEvents)
-    .where(eq(conversionEvents.orgId, org.id));
-  const totalConversions = conversionsRes[0]?.value || 0;
+    .from(conversionEventsTable)
+    .where(eq(conversionEventsTable.orgId, org.id));
+  const totalConversions = Number(conversionsRes[0]?.value || 0);
   const conversionRate = totalRecommendations > 0 
     ? ((totalConversions / totalRecommendations) * 100).toFixed(1) 
     : "0.0";
 
   // D. Active size charts count
-  const activeChartsRes = await db
+  const activeChartsRes = await dbClient
     .select({ value: count() })
-    .from(fitSizeCharts)
-    .where(sql`${fitSizeCharts.orgId} = ${org.id} AND ${fitSizeCharts.isActive} = true`);
-  const activeChartsCount = activeChartsRes[0]?.value || 0;
+    .from(fitSizeChartsTable)
+    .where(eq(fitSizeChartsTable.orgId, org.id));
+  const activeChartsCount = Number(activeChartsRes[0]?.value || 0);
 
   // E. Top requested reference brands
-  const topBrandsRes = await db
+  const topBrandsRes = await dbClient
     .select({
-      brand: usageLogs.refBrand,
+      brand: usageLogsTable.refBrand,
       count: count(),
     })
-    .from(usageLogs)
-    .where(eq(usageLogs.orgId, org.id))
-    .groupBy(usageLogs.refBrand)
+    .from(usageLogsTable)
+    .where(eq(usageLogsTable.orgId, org.id))
+    .groupBy(usageLogsTable.refBrand)
     .orderBy(desc(count()))
     .limit(5);
 
   // F. Predicted size distribution
-  const sizeDistRes = await db
+  const sizeDistRes = await dbClient
     .select({
-      size: usageLogs.predictedSize,
+      size: usageLogsTable.predictedSize,
       count: count(),
     })
-    .from(usageLogs)
-    .where(eq(usageLogs.orgId, org.id))
-    .groupBy(usageLogs.predictedSize)
+    .from(usageLogsTable)
+    .where(eq(usageLogsTable.orgId, org.id))
+    .groupBy(usageLogsTable.predictedSize)
     .orderBy(desc(count()));
 
   return {
     shop,
-    planTier: org.planTier,
-    trialRequestsRemaining: org.trialRequestsRemaining,
+    planTier: (org.planTier as string) || "trial",
+    trialRequestsRemaining: Number(org.trialRequestsRemaining ?? 1000),
     totalRecommendations,
     boundaryCount,
     boundaryPercentage,
     totalConversions,
     conversionRate,
     activeChartsCount,
-    topBrands: topBrandsRes,
-    sizeDistribution: sizeDistRes,
+    topBrands: topBrandsRes.map((b: any) => ({ brand: String(b.brand || ""), count: Number(b.count || 0) })),
+    sizeDistribution: sizeDistRes.map((s: any) => ({ size: String(s.size || ""), count: Number(s.count || 0) })),
   };
 };
 
 export default function AnalyticsDashboard() {
   const data = useLoaderData<typeof loader>();
 
-  const brandRows = data.topBrands.map((b, index) => (
+  const brandRows = data.topBrands.map((b: any, index: number) => (
     <IndexTable.Row id={b.brand} key={b.brand} position={index}>
       <IndexTable.Cell>
         <Text variant="bodyMd" fontWeight="bold" as="span">
@@ -147,7 +152,7 @@ export default function AnalyticsDashboard() {
   return (
     <Page title="Usage & Analytics Dashboard" subtitle="Real-time performance metrics and fit recommendation insights">
       <BlockStack gap="500">
-        <Banner title="Live Edge Sync Active" status="info">
+        <Banner title="Live Edge Sync Active" tone="info">
           <p>
             Analytics automatically sync with Cloudflare Durable Objects edge counters on load.
           </p>
@@ -158,15 +163,15 @@ export default function AnalyticsDashboard() {
           <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
             <Card>
               <BlockStack gap="200">
-                <Text variant="bodySm" color="subdued" as="p">
+                <Text variant="bodySm" tone="subdued" as="p">
                   Total Fit Recommendations
                 </Text>
                 <Text variant="headingXl" as="h3">
                   {data.totalRecommendations.toLocaleString()}
                 </Text>
                 <InlineStack align="space-between">
-                  <Badge status="success">Active</Badge>
-                  <Text variant="bodyXs" color="subdued" as="span">
+                  <Badge tone="success">Active</Badge>
+                  <Text variant="bodyXs" tone="subdued" as="span">
                     {data.planTier === "trial" ? `${data.trialRequestsRemaining} trial left` : "Unlimited"}
                   </Text>
                 </InlineStack>
@@ -177,13 +182,13 @@ export default function AnalyticsDashboard() {
           <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
             <Card>
               <BlockStack gap="200">
-                <Text variant="bodySm" color="subdued" as="p">
+                <Text variant="bodySm" tone="subdued" as="p">
                   Shopper Conversion Rate
                 </Text>
                 <Text variant="headingXl" as="h3">
                   {data.conversionRate}%
                 </Text>
-                <Text variant="bodyXs" color="subdued" as="p">
+                <Text variant="bodyXs" tone="subdued" as="p">
                   {data.totalConversions} conversions recorded
                 </Text>
               </BlockStack>
@@ -193,13 +198,13 @@ export default function AnalyticsDashboard() {
           <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
             <Card>
               <BlockStack gap="200">
-                <Text variant="bodySm" color="subdued" as="p">
+                <Text variant="bodySm" tone="subdued" as="p">
                   Boundary Fit Cases
                 </Text>
                 <Text variant="headingXl" as="h3">
                   {data.boundaryPercentage}%
                 </Text>
-                <Text variant="bodyXs" color="subdued" as="p">
+                <Text variant="bodyXs" tone="subdued" as="p">
                   {data.boundaryCount} two-size suggestions
                 </Text>
               </BlockStack>
@@ -209,13 +214,13 @@ export default function AnalyticsDashboard() {
           <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}>
             <Card>
               <BlockStack gap="200">
-                <Text variant="bodySm" color="subdued" as="p">
+                <Text variant="bodySm" tone="subdued" as="p">
                   Active Size Charts
                 </Text>
                 <Text variant="headingXl" as="h3">
                   {data.activeChartsCount}
                 </Text>
-                <Text variant="bodyXs" color="subdued" as="p">
+                <Text variant="bodyXs" tone="subdued" as="p">
                   Garment charts configured
                 </Text>
               </BlockStack>
@@ -225,7 +230,7 @@ export default function AnalyticsDashboard() {
 
         {/* Detailed Insights */}
         <Grid>
-          <Grid.Cell columnSpan={{ xs: 12, sm: 6, md: 6, lg: 6, xl: 6 }}>
+          <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
             <Card>
               <BlockStack gap="400">
                 <Text variant="headingMd" as="h2">
@@ -246,7 +251,7 @@ export default function AnalyticsDashboard() {
                   </IndexTable>
                 ) : (
                   <Box padding="400">
-                    <Text variant="bodyMd" color="subdued" as="p">
+                    <Text variant="bodyMd" tone="subdued" as="p">
                       No reference brand requests recorded yet. Recommendations will populate here as shoppers interact with your storefront widget.
                     </Text>
                   </Box>
@@ -255,7 +260,7 @@ export default function AnalyticsDashboard() {
             </Card>
           </Grid.Cell>
 
-          <Grid.Cell columnSpan={{ xs: 12, sm: 6, md: 6, lg: 6, xl: 6 }}>
+          <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
             <Card>
               <BlockStack gap="400">
                 <Text variant="headingMd" as="h2">
@@ -263,7 +268,7 @@ export default function AnalyticsDashboard() {
                 </Text>
                 {data.sizeDistribution.length > 0 ? (
                   <BlockStack gap="300">
-                    {data.sizeDistribution.map((item) => {
+                    {data.sizeDistribution.map((item: any) => {
                       const pct = data.totalRecommendations > 0
                         ? Math.round((item.count / data.totalRecommendations) * 100)
                         : 0;
@@ -273,7 +278,7 @@ export default function AnalyticsDashboard() {
                             <Text variant="bodyMd" fontWeight="semibold" as="span">
                               Size {item.size}
                             </Text>
-                            <Text variant="bodySm" color="subdued" as="span">
+                            <Text variant="bodySm" tone="subdued" as="span">
                               {item.count} ({pct}%)
                             </Text>
                           </InlineStack>
@@ -284,7 +289,7 @@ export default function AnalyticsDashboard() {
                   </BlockStack>
                 ) : (
                   <Box padding="400">
-                    <Text variant="bodyMd" color="subdued" as="p">
+                    <Text variant="bodyMd" tone="subdued" as="p">
                       No size prediction data available yet.
                     </Text>
                   </Box>

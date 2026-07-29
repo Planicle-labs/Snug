@@ -8,11 +8,15 @@ import { eq, sql } from "drizzle-orm";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
+  const dbClient = db as any;
+  const orgTable = organizations as any;
+  const fitSizeChartsTable = fitSizeCharts as any;
+  const garmentMappingsTable = garmentMappings as any;
 
-  const [org] = await db
+  const [org] = await dbClient
     .select()
-    .from(organizations)
-    .where(eq(organizations.shop, session.shop))
+    .from(orgTable)
+    .where(eq(orgTable.shop, session.shop))
     .limit(1);
 
   if (!org) {
@@ -24,23 +28,23 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     };
   }
 
-  const [sizeChartCount] = await db
+  const [sizeChartCount] = await dbClient
     .select({ count: sql<number>`count(*)` })
-    .from(fitSizeCharts)
-    .where(eq(fitSizeCharts.orgId, org.id))
+    .from(fitSizeChartsTable)
+    .where(eq(fitSizeChartsTable.orgId, org.id))
     .limit(1);
 
-  const hasSizeCharts = (sizeChartCount?.count ?? 0) > 0;
+  const hasSizeCharts = Number(sizeChartCount?.count ?? 0) > 0;
 
-  const [mappingCount] = await db
+  const [mappingCount] = await dbClient
     .select({ count: sql<number>`count(*)` })
-    .from(garmentMappings)
-    .where(eq(garmentMappings.orgId, org.id))
+    .from(garmentMappingsTable)
+    .where(eq(garmentMappingsTable.orgId, org.id))
     .limit(1);
 
-  const hasProductMappings = (mappingCount?.count ?? 0) > 0;
+  const hasProductMappings = Number(mappingCount?.count ?? 0) > 0;
   
-  const isWidgetActive = org.widgetActive && hasSizeCharts && hasProductMappings;
+  const isWidgetActive = Boolean(org.widgetActive) && hasSizeCharts && hasProductMappings;
 
   let onboardingStep = 0;
   if (hasSizeCharts && hasProductMappings && isWidgetActive) {
