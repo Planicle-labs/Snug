@@ -1,4 +1,5 @@
 import { expect, it } from "vitest"
+import { predictSize } from "./prediction"
 import { RefSizeRow, SizingInput, TargetSizeRow } from "./types"
 
 // Helper functions for tests
