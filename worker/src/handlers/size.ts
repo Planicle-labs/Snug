@@ -33,17 +33,7 @@ export async function handleSizePrediction(ctx: Context<AppEnv>) {
   const refSize = body.ref_size.trim().toUpperCase();
   const shopifyProductId = body.shopify_product_id.trim();
 
-  // Construct unique KV prediction cache key
-  const cacheKey = `pred:${org.org_id}:${shopifyProductId}:${refBrand}:${refGarment}:${refSize}`;
-
-  // 3. STEP 1: Check KV Prediction Cache
-  const cachedPrediction = await ctx.env.KV.get(cacheKey, "json");
-  if (cachedPrediction) {
-    // CACHE HIT! Serve directly from KV edge memory (< 2ms)
-    return ctx.json(cachedPrediction, 200);
-  }
-
-  // 4. STEP 2: CACHE MISS — Resolve Product Mapping
+  // 4. Resolve Product Mapping
   const productMappings = (await ctx.env.KV.get(
     `merchant:${org.org_id}:mappings`,
     "json"
@@ -105,10 +95,6 @@ export async function handleSizePrediction(ctx: Context<AppEnv>) {
   // 7. STEP 5: Asynchronously Persist to KV Prediction Cache & Log Analytics via waitUntil
   ctx.executionCtx.waitUntil(
     Promise.all([
-      // Persist computed result in KV cache for future 2ms instant hits
-      ctx.env.KV.put(cacheKey, JSON.stringify(prediction), {
-        expirationTtl: 86400 * 7, // Cache for 7 days
-      }),
       // Log usage analytics to Neon Postgres
       logUsageEvent(ctx.env.DATABASE_URL, {
         org_id: org.org_id,
