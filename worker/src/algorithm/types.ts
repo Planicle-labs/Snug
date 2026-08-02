@@ -1,16 +1,3 @@
-export interface RefSizeRow{
-  size_label: string,
-  chest_min_cm: number,
-  chest_max_cm: number,
-  ease_value_cm: number,
-  ease_source: "explicit" | "inferred" | "user_calibrated",
-  fit_type: "slim" | "regular" | "oversized",
-  shoulder_min_cm: number | null,
-  shoulder_max_cm: number | null,
-  length_min_cm: number | null,
-  length_max_cm: number | null,
-}
-
 export interface TargetSizeRow{
   size_label: string,
   chest_min_cm: number,
@@ -21,6 +8,10 @@ export interface TargetSizeRow{
   shoulder_max_cm: number | null,
   length_min_cm: number | null,
   length_max_cm: number | null
+}
+
+export interface RefSizeRow extends TargetSizeRow{
+    fit_type: 'slim' | 'regular' | 'oversized';
 }
 
 export interface SizingInput{

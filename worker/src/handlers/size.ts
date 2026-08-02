@@ -1,6 +1,9 @@
 import type { Context } from 'hono';
 import type { AppEnv } from '../index';
 
+import { predictSize } from '../algorithm/sizing';
+import type { RefSizeRow, TargetSizeRow, SizingInput } from '../algorithm/types';
+
 export interface PredictRequestBody {
   ref_brand: string;
   ref_garment: string;
@@ -61,32 +64,43 @@ export async function handleSizePrediction(ctx: Context<AppEnv>) {
   const targetGarmentType = productMapping.garment_type.trim().toLowerCase();
 
   // 5. STEP 3: Fetch Merchant Size Chart & Reference Brand Chart
-  const refChart = await ctx.env.KV.get(`brand:${refBrand}:${refGarment}`, "json");
-  const merchantChart = await ctx.env.KV.get(`chart:${org.org_id}:${targetGarmentType}`, "json");
+  const [refChartData, merchantChartData] = await Promise.all([
+    ctx.env.KV.get(`brand:${refBrand}:${refGarment}`, "json") as Promise<RefSizeRow[] | null>,
+    ctx.env.KV.get(`chart:${org.org_id}:${targetGarmentType}`, "json") as Promise<TargetSizeRow[] | null>,
+  ]);
 
-  if (!refChart) {
+  if (!refChartData) {
     return ctx.json(
       { error: "Not Found", message: `Reference brand size chart '${refBrand}' for '${refGarment}' not supported` },
       404
     );
   }
 
-  if (!merchantChart) {
+  if (!merchantChartData) {
     return ctx.json(
       { error: "Not Found", message: `Merchant size chart for '${targetGarmentType}' not found` },
       404
     );
   }
 
-  // 6. STEP 4: Compute Sizing Prediction (Stubbed until TASK-P06 algorithm engine decisions finalized)
-  const prediction = {
-    predicted_size: refSize,
-    confidence: 85,
-    confidence_label: "high",
-    is_boundary_case: false,
-    suggested_sizes: [refSize],
-    reasoning: "Placeholder recommendation (sizing algorithm stub)",
+  // 6. STEP 4: Compute Sizing Prediction
+  const refSizeRow = Array.isArray(refChartData) ? refChartData.find(r => r.size_label.toUpperCase() === refSize) : null;
+  if (!refSizeRow) {
+    return ctx.json(
+      { error: "Not Found", message: `Size '${refSize}' for brand '${refBrand}' and garment '${refGarment}' not found` },
+      404
+    );
+  }
+
+  const targetChart = Array.isArray(merchantChartData) ? merchantChartData : [];
+
+  const input: SizingInput = {
+    refSizeRow,
+    targetChart,
+    targetFitType: 'regular', // Default to regular fit if not explicitly specified
   };
+
+  const prediction = predictSize(input);
 
   // 7. STEP 5: Asynchronously Persist to KV Prediction Cache & Log Analytics via waitUntil
   ctx.executionCtx.waitUntil(
