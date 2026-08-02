@@ -25,7 +25,7 @@ Snug is a Shopify app that solves online apparel return rates caused by sizing i
 - Vanilla JS via Theme App Extension for widget
 - Shopify React Router template for dashboard
 - **Neon Postgres with Drizzle ORM and Neon HTTP driver** - critical for Cloudflare Workers
-- Upstash Redis for rate limiting
+- Cloudflare Durable Objects for current trial-quota enforcement; Redis deferred until scale requires it
 - Cloudflare KV for cache
 - Railway for dashboard hosting
 
@@ -125,14 +125,17 @@ The app runs with:
 - `app.products.tsx` — product to garment mapping
 - `app.widget.tsx` — widget configuration
 - Schema with all tables including CHECK constraints
-- `worker/src/durable-objects/UsageCounter.ts` — Durable Object with atomic SQLite counter checks and milestone checkpoints
+- `worker/src/durable-objects/UsageCounter.ts` — Durable Object scaffold for atomic SQLite counter checks and milestone checkpoints; first-use handling requires W-02
 - `worker/src/middleware/cors.ts` — OPTIONS 204 preflight and post-execution CORS headers
 - `worker/src/middleware/auth.ts` — API key verification, active widget check, and Origin domain matching
-- `worker/src/middleware/rateLimit.ts` — Edge quota rate-limiting middleware with `ctx.executionCtx.waitUntil` milestone Postgres sync
-- `worker/src/handlers/size.ts` — `POST /v1/size` prediction handler with `< 2ms` KV prediction cache (`pred:{org_id}:{product_id}:{ref_brand}:{ref_garment}:{ref_size}`), mapping resolution, and `waitUntil` analytics logging
-- `worker/src/handlers/adminUsage.ts` — `GET /v1/admin/usage` internal usage sync handler with `X-Internal-Secret` auth
+- `worker/src/middleware/rateLimit.ts` — DO quota middleware; its milestone sync helper is currently a logging stub
+- `worker/src/handlers/size.ts` — `POST /v1/size` handler with parallel chart reads and no prediction cache, so chart updates take effect immediately; analytics persistence is currently a logging stub
+- `worker/src/handlers/adminUsage.ts` — `GET /v1/admin/usage` scaffold; secret handling and Neon persistence require W-01 and W-03
 - `worker/src/handlers/product.ts` — `GET /v1/product/:product_id` storefront widget mapping lookup
-- `worker/src/index.ts` — Exported `AppEnv` context schema, Hono application instance, and route bindings
+- `worker/src/algorithm/types.ts` — Data contracts (`RefSizeRow`, `TargetSizeRow`, `SizingInput`, `SizingResult`) with clean `extends` inheritance
+- `worker/src/algorithm/sizing.ts` — Pure 9-step deterministic sizing calculation engine with reverse ease deduction, 5-signal confidence scoring, cross-fit penalties, and boundary case proximity detection
+- `worker/src/algorithm/sizing.test.ts` — Vitest unit test suite (5 tests covering happy path, cross-brand translation, boundary proximity, cross-fit penalties, and ease source trust; 100% pass rate in 3ms)
+- `worker/src/handlers/size.ts` — Refactored `POST /v1/size` handler to use parallel `Promise.all` KV reads, execute pure `predictSize()`, and eliminate prediction caching (`pred:*`) to prevent stale cache bugs and save KV write costs
 
 ---
 
@@ -141,9 +144,11 @@ The app runs with:
 - `app.analytics.tsx` — usage analytics dashboard
 - `app.billing.tsx` — billing page
 - `webhooks.shop.redact.tsx` — GDPR shop deletion
-- `webhooks.customers.redact.tsx` — GDPR  
-- `webhooks.customers.data_request.tsx` — GDPR
+- `webhooks.customers.redact.tsx` — GDPR customer data deletion
+- `webhooks.customers.data_request.tsx` — GDPR customer data request
 - Storefront widget Theme App Extension
-- Core Sizing Calculation Algorithm Engine (`worker/src/algorithm/sizing.ts`)
-- CSV upload for size charts
+- Seeding scripts for NIFT anthropometric anchors and 10 reference brand charts
+- Daily usage sync background cron job
 - Railway deployment
+
+Before deployment, resolve the Worker blockers in [issues.md](issues.md).

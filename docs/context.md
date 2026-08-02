@@ -54,11 +54,13 @@ As of the latest repository update, all uncommitted modifications have been orga
                        └────────────────────────────────────────┘
 ```
 
-### 4-Layer Hybrid Usage Sync Strategy
-1. **Sub-Millisecond Edge Enforcement**: `UsageCounter` Durable Object handles real-time atomic decrements per request on Cloudflare Workers.
-2. **Non-Blocking Checkpoint Sync**: Sizing Worker uses `ctx.waitUntil()` to flush usage state to Neon Postgres whenever milestone thresholds are crossed (e.g. every 100 requests used or at 20%, 50%, 80%, 100% of limits).
-3. **On-Demand Dashboard Sync**: Dashboard loader calls `GET /v1/admin/usage` when a merchant visits their usage/analytics screen to display up-to-the-second data and flush state.
-4. **Daily Cron Safety Net**: Daily background job handles inactive merchant syncs and nightly billing period rollovers.
+### Usage and reporting strategy
+1. **Current authority:** `UsageCounter` Durable Objects provide serialized trial-quota transitions per organization.
+2. **Current read model:** Cloudflare KV distributes API-key records, mappings, and charts; it is not a quota counter.
+3. **Pending persistence:** milestone, analytics, and dashboard sync calls are scaffolded but currently only log. Neon writes and scheduled reconciliation remain implementation work.
+4. **Deferred scale option:** Redis is not deployed. It will be considered only after measured load shows that a per-organization DO is a bottleneck.
+
+See [issues.md](issues.md) for the deployment blockers and acceptance criteria.
 
 ---
 
@@ -68,7 +70,7 @@ As of the latest repository update, all uncommitted modifications have been orga
 |---|---|---|---|
 | **Database & Schema (`packages/db`)** | 🟢 Schema Pushed | Postgres setup, Drizzle schemas, trial fields, CHECK constraints | Seeding NIFT anthropometric anchors, seeding 10 reference brand size charts |
 | **Merchant Dashboard (`shopify-app`)** | 🟡 60% Built | OAuth, 3-step onboarding UI, Brand setup, Size Charts UI, Garment Mapping UI | Analytics UI, Billing UI, On-demand usage fetch (`GET /v1/admin/usage`), KV cache sync triggers, GDPR webhooks |
-| **Sizing API (`worker/`)** | 🔴 Scaffolded | Hono server scaffold (`/health`), `UsageCounter` DO scaffold | Complete 9-step algorithm, `UsageCounter` DO milestone checkpoints, `POST /v1/size`, `GET /v1/admin/usage`, unit tests |
+| **Sizing API (`worker/`)** | 🟡 Not production ready | Hono routing, KV reads, sizing algorithm, and a `UsageCounter` DO scaffold | Fix admin auth and DO initialization; implement Neon persistence, runtime validation, reconciliation, and Worker-runtime tests (W-01 to W-10) |
 | **Background Crons** | 🔴 0% Built | None | Daily Usage sync cron (DO -> Neon Postgres), billing period rollover cron |
 | **Storefront Widget** | 🔴 0% Built | None | Theme App Extension scaffold, Vanilla JS bundle, sizing modal UI, boundary case two-size selector, Dawn theme integration |
 
@@ -77,5 +79,5 @@ As of the latest repository update, all uncommitted modifications have been orga
 ## 5. Workstream Division
 
 The remaining tasks are divided into two decoupled workstreams:
-* **Priyanshu**: Sizing Engine, Cloudflare Worker Sizing API, `UsageCounter` DO (with Milestone Checkpoint Sync), Algorithm Unit Tests, Data Seeding, `GET /v1/admin/usage` Endpoint, and Daily Sync Cron.
+* **Priyanshu**: Sizing Engine, Cloudflare Worker Sizing API, `UsageCounter` DO, Worker-runtime tests, data seeding, actual Neon sync, and scheduled reconciliation.
 * **Rudra**: Merchant Dashboard UI (Size Charts, Garment Tagging, Analytics with On-Demand Usage Loader, Billing), Storefront Theme App Extension Widget (with Boundary Case Two-Size UI), Dashboard KV Cache Sync, and GDPR Webhooks.

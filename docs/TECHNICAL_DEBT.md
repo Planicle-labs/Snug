@@ -1,6 +1,6 @@
 # Snug — Technical Debt & Known Issues
 
-Every problem, gap, contradiction, and bug found during the full codebase audit (2026-07-23). Each point is a discrete actionable fix.
+Every problem, gap, contradiction, and bug found during the full codebase audit (2026-07-23). Each point is a discrete actionable fix. Worker findings were refreshed on 2026-08-02; see [issues.md](issues.md) for their canonical priority and status.
 
 ---
 
@@ -26,10 +26,9 @@ Every problem, gap, contradiction, and bug found during the full codebase audit 
 
 ## B. Contradictions Between Documents
 
-**B1. Usage enforcement: Durable Objects vs. Upstash Redis**
-- `docs/architecture.md` describes Upstash Redis (`usage:{org_id}`, `rl:{org}:{minute_bucket}`) as the authority for usage cap enforcement and burst rate limiting, including a full data flow with Redis `DECR` and `INCR`.
-- `docs/context.md`, `docs/priyanshu/overview.md`, `docs/priyanshu/tasks.md`, and the actual Worker code (`UsageCounter.ts`) use Cloudflare Durable Objects for the same purpose — no Upstash Redis anywhere in the code.
-- **Fix:** Decide the canonical approach (DOs are already implemented), update `architecture.md` to remove Upstash Redis references, and remove `docs/database.md` / `build_logs.md` Redis references accordingly.
+**B1. [RESOLVED] Usage enforcement: Durable Objects vs. Upstash Redis**
+- **Decision:** Durable Objects are the current quota authority. Redis is explicitly deferred until measured scale requires it.
+- **Documentation:** `architecture.md`, `context.md`, `database.md`, `roadmap.md`, and `build_logs.md` now reflect this decision. The transition criteria are recorded as S-01 in `issues.md`.
 
 **B2. `organizations` trial quota field name mismatch across files**
 - `schema.ts` uses `trialRequestsRemaining` (camelCase Drizzle field).
@@ -49,30 +48,28 @@ Every problem, gap, contradiction, and bug found during the full codebase audit 
 
 ## C. Worker — Missing Implementation
 
-**C1. [RESOLVED] `POST /v1/size` endpoint does not exist**
-- **Status:** Resolved by commit `98ce064` (`worker/src/handlers/size.ts`). Implemented prediction handler with `< 2ms` KV prediction caching (`pred:{org_id}:{product_id}:{ref_brand}:{ref_garment}:{ref_size}`), product mapping lookup, chart lookups, sizing algorithm scaffold, and non-blocking `ctx.executionCtx.waitUntil` analytics logging.
+**C1. [PARTIAL] `POST /v1/size` endpoint exists**
+- The handler performs mapping/chart lookup and sizing, but it has no runtime schemas, hard-codes target fit type, charges before validation, and its analytics helper only logs. See W-04, W-06, W-08, and W-10 in `issues.md`.
 
 **C2. [RESOLVED] `GET /v1/product/:product_id` does not exist**
 - **Status:** Resolved by commit `98ce064` (`worker/src/handlers/product.ts`). Implemented storefront product widget mapping lookup endpoint returning `{ mapped: true, garment_type: "tshirt" }` or `{ mapped: false }`.
 
-**C3. [RESOLVED] `GET /v1/admin/usage` does not exist**
-- **Status:** Resolved by commit `98ce064` (`worker/src/handlers/adminUsage.ts`). Implemented internal admin usage sync endpoint with `X-Internal-Secret` auth, live DO query, and on-demand Postgres sync.
+**C3. [PARTIAL] `GET /v1/admin/usage` exists**
+- The endpoint exists but has an authentication bypass when the development fallback or a missing secret is used, and its PostgreSQL sync helper only logs. See W-01, W-02, and W-03 in `issues.md`.
 
 **C4. `GET /v1/brands/search` does not exist but is already called**
 - `app.brand.tsx` action (intent=`search`) makes a live HTTP call to `${CLOUDFLARE_WORKER_URL}/v1/brands/search?q=...`. This endpoint does not exist in the Worker.
 - Every brand search in the dashboard currently returns an error or throws.
 - **Fix:** Implement this endpoint in the Worker to query `brandSizeCharts` by brand name prefix.
 
-**C5. [RESOLVED] `UsageCounter` DO is never called in the request path**
-- **Status:** Resolved by commits `7f2c97a` and `98ce064` (`worker/src/middleware/rateLimit.ts`). `rateLimitMiddleware` is mounted on `/v1/*` and calls the `UsageCounter` DO stub (`check_and_decrement_trial`) on every storefront prediction request. Returns HTTP 429 when trial quota is exhausted, and triggers `ctx.executionCtx.waitUntil` milestone Postgres sync.
+**C5. [PARTIAL] `UsageCounter` DO is called in the request path**
+- The middleware invokes the DO, but optional SQL rows are read with `.one()`, which throws on zero rows. New-org initialization and exhausted-quota handling therefore fail. See W-02 and W-04 in `issues.md`.
 
-**C6. `wrangler.toml` is missing the `DATABASE_URL` secret declaration**
-- The DO needs to write to Neon on milestone checkpoints. The Worker env has `KV` and `USAGE_COUNTER` but `DATABASE_URL` is not declared as a secret binding.
-- **Fix:** Add `[secrets]` or use `wrangler secret put DATABASE_URL` before deploying. Also document this in `docs/build_logs.md`.
+**C6. Worker secret requirements are not declared**
+- `DATABASE_URL` and `INTERNAL_ADMIN_SECRET` need deploy-time validation. Configure `secrets.required` and set each secret through Wrangler or the Cloudflare dashboard before deployment. See W-01, W-03, and W-09 in `issues.md`.
 
-**C7. Sizing algorithm does not exist**
-- `worker/src/algorithm/sizing.ts` has not been created. The 9-step pure function, 5-signal confidence score, cross-fit penalty, and boundary case detection are fully specified in docs but unimplemented.
-- **Fix:** Implement `sizing.ts` and corresponding `sizing.test.ts`.
+**C7. [RESOLVED] Sizing algorithm implemented & tested**
+- The pure sizing algorithm is implemented and unit-tested. Production integration is not complete because the handler hard-codes target fit type and assumes chart order for boundary neighbours; see W-06 and W-07 in `issues.md`.
 
 **C8. Paid plan pricing and request limits undefined (No infinite request mechanism)**
 - Paid plan pricing tiers, request allowances, and Shopify usage billing limits are not yet defined.

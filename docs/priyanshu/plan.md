@@ -6,6 +6,8 @@
 
 This plan outlines the implementation roadmap for **Workstream 1 (Priyanshu)**, covering the sizing engine, platform API, Durable Objects, rate-limiting & quota enforcement, database seeding, on-demand admin usage sync, and daily background crons for Snug.
 
+> **Status correction (2026-08-02):** This plan contains historical implementation milestones. The current authoritative issue list is [../issues.md](../issues.md): Durable Objects remain the quota authority, Redis is deferred, and Neon checkpoint/admin persistence is not implemented yet.
+
 ### Core Architectural Decisions & System Contracts
 
 1. **4-Layer Hybrid Usage Sync Strategy**:

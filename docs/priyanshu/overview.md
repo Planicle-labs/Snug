@@ -6,15 +6,17 @@
 
 Priyanshu owns the core computation, API endpoints, background cron jobs, database seeding, and real-time usage limiting for Snug. This covers everything that processes shopper sizing requests behind the scenes.
 
+**Status correction (2026-08-02):** The Worker is not production ready. Durable Objects are the current quota authority; Redis is deferred until scale requires it. See [../issues.md](../issues.md) for the active blockers.
+
 ### Core Components Owned:
 * **Cloudflare Worker Sizing API (`worker/`)**: Endpoint handlers (`POST /v1/size`, `GET /v1/admin/usage`, `GET /v1/product/:product_id`), Hono routing, algorithm implementation, origin/API key auth, and CORS.
 * **Usage Limit Enforcement & Checkpoints (`worker/src/durable-objects/UsageCounter.ts`)**: 
-  - Cloudflare Durable Objects (`UsageCounter`) providing single-threaded sub-millisecond trial quota checks & atomic request decrements at the edge.
-  - **Milestone Checkpoint Sync**: Triggers non-blocking `ctx.waitUntil()` writes to Neon Postgres whenever usage crosses milestone checkpoints (e.g. 100, 200, 300, 400, 500 requests used).
-* **On-Demand Admin Usage API (`GET /v1/admin/usage`)**: Endpoint called by Rudra's dashboard on page visit to fetch real-time usage stats from DO and immediately sync/persist to Neon Postgres.
+  - Cloudflare Durable Objects (`UsageCounter`) are intended to provide serialized trial quota checks at the edge; first-use handling must be fixed before deployment (W-02).
+  - **Milestone Checkpoint Sync**: The `waitUntil()` integration exists as a scaffold, but Neon persistence is not implemented (W-03).
+* **On-Demand Admin Usage API (`GET /v1/admin/usage`)**: Endpoint scaffold used by Rudra's dashboard to fetch live DO usage. It requires secure secret handling and real Neon persistence (W-01, W-03).
 * **Sizing Algorithm Engine (`worker/src/algorithm/`)**: Pure 9-step mathematical translation function, 5-signal confidence scoring, cross-fit penalties, boundary case detection (`is_boundary_case: true`), and unit tests.
 * **Data Seeding & Reference Data (`packages/db/src/seed/`)**: Seeding NIFT population anchors and 10 reference brand size charts into Neon & Cloudflare KV.
-* **Daily Database Sync Cron (`worker/src/crons/`)**: Daily background sync job acting as a safety net to sync Durable Object counters to Neon Postgres (`organizations.trial_requests_remaining`) and execute billing period rollovers.
+* **Daily Database Sync Cron (`worker/src/crons/`)**: Planned reconciliation job to sync Durable Object counters to Neon Postgres (`organizations.trial_requests_remaining`) and execute billing period rollovers. It does not exist yet.
 
 ---
 
@@ -35,7 +37,7 @@ Priyanshu owns the core computation, API endpoints, background cron jobs, databa
 * **Worker Execution**:
   1. Resolves `org_id` for `shop`.
   2. Reads exact live usage counts from `UsageCounter` DO.
-  3. Updates `organizations.trial_requests_remaining` in Neon.
+  3. Intended: updates `organizations.trial_requests_remaining` in Neon (not implemented yet).
   4. Responds with `{ allowed: boolean, usage_remaining: number, monthly_conversions: number, plan_tier: string }`.
 
 ### C. Storefront API Contract (`POST /v1/size`)
@@ -65,7 +67,7 @@ Priyanshu owns the core computation, API endpoints, background cron jobs, databa
 
 ## 3. High-Level Delivery Milestones
 
-1. **Milestone P1**: Fix `UsageCounter` DO compile error and add milestone checkpoint triggers.
-2. **Milestone P2**: Build and unit-test the pure 9-step sizing algorithm engine with boundary case detection using isolated in-memory test mocks.
-3. **Milestone P3**: Wire `POST /v1/size` with KV lookups, `UsageCounter` DO checks, milestone `ctx.waitUntil()` DB sync, and `GET /v1/admin/usage` endpoint.
-4. **Milestone P4**: Perform deferred database seeding (NIFT anchors + 10 reference brand charts into Neon & KV), implement daily DO -> Neon Postgres sync cron job, and deploy Worker to Cloudflare production.
+1. **Milestone P1 [BLOCKED]**: Repair `UsageCounter` optional-row handling and establish authoritative counter initialization (W-02, W-04).
+2. **Milestone P2 [COMPLETED]**: Built and unit-tested the pure 9-step sizing algorithm engine (`sizing.ts`) with 5-signal confidence scoring, cross-fit penalties, boundary case detection, and 100% Vitest coverage (`sizing.test.ts`).
+3. **Milestone P3 [IN PROGRESS]**: Complete secure storefront/admin auth, runtime validation, real Neon analytics/sync, and Worker-runtime integration tests.
+4. **Milestone P4 [IN PROGRESS]**: Perform deferred database seeding (NIFT anchors + 10 reference brand charts into Neon & KV), implement daily DO -> Neon Postgres reconciliation, and deploy Worker to Cloudflare production.

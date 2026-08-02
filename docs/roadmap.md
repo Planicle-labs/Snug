@@ -27,7 +27,7 @@ Owns everything the shopper never sees directly but that the entire product depe
 - Cloudflare Worker (sizing API)
 - Sizing algorithm implementation
 - Cloudflare KV structure and reads/writes
-- Upstash Redis usage enforcement and burst limiting
+- Durable Object trial-quota enforcement; Redis evaluation only after measured scale needs it
 - Neon database schema and migrations
 - Cron jobs (usage sync and billing rollover)
 - Webhook handlers
@@ -88,7 +88,7 @@ Priority levels:
 | DB-04 | Seed `brand_size_charts` with 10 reference brands manually | P0 | A |
 | DB-05 | Restricted Neon connection string for Worker | P0 | A |
 | DB-06 | Cloudflare KV namespace setup and key structure documented | P0 | A |
-| DB-07 | Upstash Redis project setup | P0 | A |
+| DB-07 | Durable Object quota design, initialization, and Worker-runtime tests | P0 | A |
 | DB-08 | Railway project setup, environment variables configured | P0 | B |
 
 ---
@@ -101,8 +101,8 @@ Priority levels:
 | API-02 | `POST /v1/size` endpoint skeleton | P0 | A |
 | API-03 | API key validation via KV lookup (`apikey:{key}`) | P0 | A |
 | API-04 | Origin header secondary validation | P0 | A |
-| API-05 | Monthly usage cap enforcement via Redis atomic DECR | P0 | A |
-| API-06 | Burst rate limiting via Redis INCR per minute bucket | P1 | A |
+| API-05 | Monthly usage cap enforcement via `UsageCounter` Durable Object | P0 | A |
+| API-06 | Abuse protection and burst-limit design without Redis | P1 | A |
 | API-07 | Input validation (brand, garment, size against KV) | P0 | A |
 | API-08 | Reference brand size chart fetch from KV | P0 | A |
 | API-09 | Merchant size chart fetch from KV | P0 | A |
@@ -127,12 +127,12 @@ Priority levels:
 | CRON-01 | Usage sync cron scaffolded on Railway | P1 | A |
 | CRON-02 | COUNT usage_logs per org since billing_period_start | P1 | A |
 | CRON-03 | UPDATE organizations.usage_remaining | P1 | A |
-| CRON-04 | SET Redis usage:{org_id} counter from Neon count | P1 | A |
+| CRON-04 | Reconcile `UsageCounter` state with Neon reporting data | P1 | A |
 | CRON-05 | KV update for shop:{domain} after sync | P1 | A |
-| CRON-06 | Redis counter rebuild if counter is missing | P1 | A |
+| CRON-06 | Repair or initialize missing Durable Object state from the authoritative allowance | P1 | A |
 | CRON-07 | Billing period rollover cron scaffolded on Railway | P1 | A |
 | CRON-08 | Detect elapsed billing periods and reset counters | P1 | A |
-| CRON-09 | Reset usage_remaining in Neon and Redis on rollover | P1 | A |
+| CRON-09 | Reset usage_remaining in Neon and the `UsageCounter` on rollover | P1 | A |
 
 ---
 
@@ -146,7 +146,7 @@ Priority levels:
 | AUTH-04 | Organization row created on install | P0 | A+B |
 | AUTH-05 | Silent API key generated and stored on install | P0 | A+B |
 | AUTH-06 | KV entries written on install (`apikey:{}`, `shop:{}`) | P0 | A+B |
-| AUTH-07 | Redis usage counter initialised on install | P0 | A+B |
+| AUTH-07 | UsageCounter initialization contract established on install | P0 | A+B |
 | AUTH-08 | API key injected into Theme App Extension on install | P0 | A+B |
 | AUTH-09 | Webhooks registered on install | P0 | B |
 | AUTH-10 | `app/uninstalled` webhook handler | P0 | B |
@@ -255,7 +255,7 @@ Phase 6 — Beta Hardening     Weeks 11–12
 
 - DB-01: Create Neon project, get connection strings (full and restricted)
 - DB-06: Define and document KV namespace and all key patterns
-- DB-07: Create Upstash Redis project, get credentials
+- DB-07: Define and test Durable Object initialization from the merchant's authoritative allowance
 - DB-02: Write full Drizzle schema for all tables, push to Neon
 - DB-03: Seed `anthropometric_anchors` with NIFT male values
 - DB-04: Manually seed `brand_size_charts` with 10 reference brands (Uniqlo, Zara, H&M, Snitch, Bewakoof, The Souled Store, Mango, Levis, Nike, Adidas) — use real published size charts
@@ -289,8 +289,8 @@ Algorithm runs correctly against seeded data in a test script. Database schema i
 - API-02: `POST /v1/size` endpoint skeleton
 - API-03: API key validation via KV lookup
 - API-04: Origin header secondary validation
-- API-05: Monthly usage cap enforcement via Redis atomic DECR
-- API-06: Burst rate limiting via Redis INCR
+- API-05: Monthly usage cap enforcement via `UsageCounter` Durable Object
+- API-06: Add abuse controls without making Redis a dependency
 - API-07: Input validation against KV
 - API-08: Reference brand size chart fetch from KV
 - API-09: Merchant size chart fetch from KV (mock merchant data in KV for testing)
@@ -323,9 +323,9 @@ Worker is live in production. A merchant can install the app, and a correctly fo
 **Person A tasks:**
 
 - AUTH-06: KV entries written correctly on install
-- AUTH-07: Redis usage counter initialised on install
+- AUTH-07: UsageCounter initialization contract established on install
 - CRON-01: Usage sync cron scaffolded on Railway
-- CRON-02 through CRON-06: Full usage sync cron implementation
+- CRON-02 through CRON-06: Full Durable Object-to-Neon reconciliation implementation
 - CRON-07 through CRON-09: Billing period rollover cron implementation
 - API-17: `GET /v1/product/{product_id}` for garment mapping lookup from KV
 
@@ -415,7 +415,7 @@ Every dashboard route exists and works. Merchants can see their analytics, manag
 
 **Person A tasks:**
 
-- Worker load testing — simulate concurrent requests, verify Redis atomic behaviour holds under load
+- Worker load testing — simulate concurrent requests and verify Durable Object quota transitions hold under load
 - Verify KV TTL strategy is correct — confirm no brand data expires prematurely
 - Verify restricted Neon connection string truly cannot read or update outside usage_logs
 
@@ -482,7 +482,7 @@ WID-01 + WID-02 (TAE scaffolded)
 
 CRON-01 through CRON-06 (usage sync)
   └──► DASH-21 (billing page needs accurate usage_remaining)
-  └──► Redis counter stays accurate without this but drifts over time
+  └──► Neon reporting data remains accurate after Durable Object reconciliation
 ```
 
 ---
@@ -527,13 +527,13 @@ Risks that could derail the timeline, ordered by likelihood.
 
 ---
 
-### Risk 3 — Redis usage counter drifts from Neon truth
+### Risk 3 — Durable Object and Neon reporting data diverge
 
-**Likelihood:** Medium. Cron job failures, Redis ephemeral storage resets, and clock skew can all cause drift.
+**Likelihood:** Medium. Checkpoint or reconciliation failures can leave Neon reporting behind the live `UsageCounter` state.
 
-**Impact:** Merchants see incorrect usage numbers. Over-serving or under-serving against plan limits.
+**Impact:** Merchants see incorrect usage numbers and billing/analytics records are incomplete.
 
-**Mitigation:** The cron job rebuilds Redis from Neon on every run — drift is self-correcting as long as the cron runs. Add monitoring to alert if the cron has not run in over 15 minutes.
+**Mitigation:** Implement idempotent event writes and scheduled reconciliation, alert on failed syncs, and retain the DO as the live enforcement authority. Redis is not a mitigation at the current scale.
 
 ---
 

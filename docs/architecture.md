@@ -1,5 +1,14 @@
 # Snug — Complete Technical Architecture
 
+> **Current runtime decision (2026-08-02):** Durable Objects are the current trial-quota authority. Cloudflare KV distributes authentication and configuration data, while Neon Postgres is the reporting/configuration store. Redis is not deployed and is deferred until measured scale requires it. See [issues.md](issues.md) for the active Worker blockers and future Redis evaluation criteria.
+
+## Current implementation status
+
+- `UsageCounter` is deterministically routed by `org_id` and is the intended owner of serialized quota transitions.
+- The Worker currently has critical initialization and admin-secret defects, and its Neon analytics/checkpoint helpers only log; it is **not production ready**. See W-01 through W-10 in [issues.md](issues.md).
+- The planned reconciliation job persists Durable Object state to Neon and performs billing rollover. It is not implemented yet.
+- Redis diagrams and `DECR`/`INCR` flows below are preserved as historical design material only. They do not describe the current runtime or deployment requirements.
+
 ---
 
 ## Table of Contents

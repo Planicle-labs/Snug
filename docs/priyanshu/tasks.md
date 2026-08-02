@@ -1,54 +1,56 @@
 # Priyanshu — Actionable Task Breakdown
 
+**Current status:** Durable Objects are the quota authority. Redis is deferred. Task completion below is superseded by the deployment blockers in [../issues.md](../issues.md).
+
 ---
 
 ## 1. Worker Scaffolding & Durable Object Logic
 
-- [x] **TASK-P03: Complete UsageCounter Durable Object & Milestone Checkpoints**
+- [ ] **TASK-P03: Repair UsageCounter Durable Object & Milestone Checkpoints**
   - **File**: `worker/src/durable-objects/UsageCounter.ts`
-  - **Details**: Complete incomplete `if (body.action)` block (line 97), handling `check_and_decrement_trial` (1000 trial limit), `record_conversion`, `get_current_usage`, and `reset_billing_period`.
+  - **Details**: Replace `SqlStorageCursor.one()` calls used for optional query results, make first-use initialization reachable and atomic, and define how the authoritative initial allowance enters the DO.
   - **Milestone Checkpoints**: When usage hits specific checkpoints (e.g. 100, 200, 300, 400, 500 requests used or 20%, 50%, 80%, 100%), return `milestone_crossed: true` in DO response to trigger non-blocking `ctx.waitUntil()` sync to Neon Postgres.
 
-- [x] **TASK-P04: Hono Middleware Setup**
+- [ ] **TASK-P04: Harden Hono Middleware Setup**
   - **File**: `worker/src/middleware/auth.ts`, `worker/src/middleware/cors.ts`
-  - **Details**: Implement API key lookup in KV (`apikey:{key}`) and Origin header validation for storefront requests. Return standard HTTP 401/422/429 JSON errors.
+  - **Details**: Implement API-key lookup in KV and retain Origin validation as browser defence in depth; do not treat Origin or a client-visible key as sufficient authorization. Add runtime validation and standard HTTP 400/401/422/429 responses.
 
-- [x] **TASK-P05: Edge Rate-Limiting & Quota Middleware**
+- [ ] **TASK-P05: Complete Edge Quota Middleware**
   - **File**: `worker/src/middleware/rateLimit.ts`
-  - **Details**: Call `UsageCounter` DO on each request to check and decrement trial request allowance atomically with sub-millisecond edge latency. If `milestone_crossed` is true, invoke non-blocking `ctx.waitUntil()` DB sync.
+  - **Details**: Call `UsageCounter` DO to authorize valid trial predictions atomically. Do not charge malformed or unsupported requests. Implement the checkpoint persistence invoked by `ctx.waitUntil()`.
 
 ---
 
 ## 2. Sizing Algorithm Engine
 
-- [ ] **TASK-P06: Core Sizing Algorithm Pure Function**
+- [x] **TASK-P06: Core Sizing Algorithm Pure Function**
   - **File**: `worker/src/algorithm/sizing.ts`
   - **Details**: Implement the 9-step calculation pipeline:
     1. Resolve reference brand garment specs from KV.
     2. Deduct reference ease to extract body chest/shoulder values.
-    3. Validate extracted body values against NIFT anchors.
+    3. Validate extracted body values against NIFT anchors (stubbed for v0).
     4. Fetch target merchant size chart from KV (`chart:{org_id}:{garment}`).
-    5. Calculate target size match.
+    5. Calculate target size match via body space delta minimization.
     6. Compute 5-signal confidence score (0-100).
     7. Apply cross-fit penalty (e.g., slim fit reference to oversized target).
     8. Detect boundary cases (`is_boundary_case: true`) and produce alternate size suggestions (`suggested_sizes: ["M", "L"]`).
     9. Format JSON response object.
 
-- [ ] **TASK-P07: Algorithm Unit Tests**
+- [x] **TASK-P07: Algorithm Unit Tests**
   - **File**: `worker/src/algorithm/sizing.test.ts`
-  - **Details**: Test exact range match, out-of-bounds inputs, boundary proximity, cross-fit translations, and missing measurement fallbacks.
+  - **Details**: Test exact range match, cross-brand translation, boundary proximity, cross-fit penalties, and ease source trust multipliers with 100% Vitest coverage.
 
 ---
 
 ## 3. API Handlers & Endpoints
 
-- [x] **TASK-P08: `POST /v1/size` Endpoint Handler**
+- [ ] **TASK-P08: Complete `POST /v1/size` Endpoint Handler**
   - **File**: `worker/src/handlers/size.ts`
-  - **Details**: Integrate auth, KV fetches, sizing algorithm, and trigger non-blocking log write to `usage_logs` via `ctx.waitUntil()`.
+  - **Details**: Integrate secure auth, validated KV fetches, sizing algorithm, correct target fit-type handling, and a real non-blocking write to `usage_logs`.
 
-- [x] **TASK-P09: `GET /v1/admin/usage` On-Demand Admin Sync Endpoint**
+- [ ] **TASK-P09: Secure and complete `GET /v1/admin/usage`**
   - **File**: `worker/src/handlers/adminUsage.ts`
-  - **Details**: Handle dashboard requests to fetch real-time usage stats from `UsageCounter` DO, execute `UPDATE organizations SET trial_requests_remaining = ...` in Neon Postgres, and return `{ usage_remaining, monthly_conversions }`.
+  - **Details**: Fail closed without `INTERNAL_ADMIN_SECRET`, fetch real-time usage from `UsageCounter`, execute the Neon update, and return `{ usage_remaining, monthly_conversions }`.
 
 - [x] **TASK-P10: `GET /v1/product/:product_id` Mapping Lookup**
   - **File**: `worker/src/handlers/product.ts`
@@ -76,4 +78,4 @@
   - **Details**: Scheduled daily cron job to query active `UsageCounter` DOs, aggregate total usage, update `organizations.trial_requests_remaining` in Neon Postgres, and write sync logs.
 
 - [ ] **TASK-P12: Cloudflare Worker Production Deployment**
-  - **Details**: Configure production environment secrets (`DATABASE_URL`, `KV`, `USAGE_COUNTER`, `INTERNAL_ADMIN_SECRET`) in `wrangler.toml` and deploy Worker.
+  - **Details**: Create explicit environments, declare required secrets (`DATABASE_URL`, `INTERNAL_ADMIN_SECRET`), generate binding types, enable observability, and deploy only after W-01 through W-04 pass.
