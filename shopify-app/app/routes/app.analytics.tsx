@@ -2,7 +2,6 @@ import type { LoaderFunctionArgs } from "react-router";
 import { useLoaderData } from "react-router";
 import {
   Page,
-  Layout,
   Card,
   Grid,
   Text,
@@ -17,16 +16,16 @@ import {
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { organizations, usageLogs, fitSizeCharts, conversionEvents } from "@snug/db";
-import { eq, and, sql, desc, count } from "drizzle-orm";
+import { eq, and, desc, count } from "drizzle-orm";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
-  const dbClient = db as any;
-  const orgTable = organizations as any;
-  const usageLogsTable = usageLogs as any;
-  const fitSizeChartsTable = fitSizeCharts as any;
-  const conversionEventsTable = conversionEvents as any;
+  const dbClient = db;
+  const orgTable = organizations;
+  const usageLogsTable = usageLogs;
+  const fitSizeChartsTable = fitSizeCharts;
+  const conversionEventsTable = conversionEvents;
 
   // 1. Fetch merchant organization record
   const orgs = await dbClient
@@ -39,22 +38,30 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     throw new Response("Organization not found for shop", { status: 404 });
   }
 
-  const org = orgs[0] as Record<string, any>;
+  const org = orgs[0];
 
   // 2. Trigger on-demand Worker sync to Durable Objects / Neon
   const workerUrl = process.env.WORKER_URL || "https://snug-worker.workers.dev";
-  const internalSecret = process.env.INTERNAL_ADMIN_SECRET || "dev-admin-secret";
+  const internalSecret = process.env.INTERNAL_ADMIN_SECRET;
 
-  try {
-    await fetch(`${workerUrl}/v1/admin/usage?shop=${encodeURIComponent(shop)}`, {
-      method: "GET",
-      headers: {
-        "X-Internal-Secret": internalSecret,
-        "Accept": "application/json",
-      },
-    });
-  } catch (err) {
-    console.warn("[Analytics Loader] Worker sync warning:", err);
+  if (!internalSecret) {
+    // A dashboard must never silently fall back to a credential committed in code.
+    console.error("[Analytics Loader] INTERNAL_ADMIN_SECRET is not configured; skipped usage sync.");
+  } else {
+    try {
+      const response = await fetch(`${workerUrl}/v1/admin/usage?shop=${encodeURIComponent(shop)}`, {
+        method: "GET",
+        headers: {
+          "X-Internal-Secret": internalSecret,
+          "Accept": "application/json",
+        },
+      });
+      if (!response.ok) {
+        console.warn(`[Analytics Loader] Worker sync returned ${response.status}.`);
+      }
+    } catch (err) {
+      console.warn("[Analytics Loader] Worker sync warning:", err);
+    }
   }
 
   // 3. Query Analytics Metrics from Neon DB
@@ -125,15 +132,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     totalConversions,
     conversionRate,
     activeChartsCount,
-    topBrands: topBrandsRes.map((b: any) => ({ brand: String(b.brand || ""), count: Number(b.count || 0) })),
-    sizeDistribution: sizeDistRes.map((s: any) => ({ size: String(s.size || ""), count: Number(s.count || 0) })),
+    topBrands: topBrandsRes.map((brand) => ({ brand: brand.brand, count: Number(brand.count) })),
+    sizeDistribution: sizeDistRes.map((size) => ({ size: size.size, count: Number(size.count) })),
   };
 };
 
 export default function AnalyticsDashboard() {
   const data = useLoaderData<typeof loader>();
 
-  const brandRows = data.topBrands.map((b: any, index: number) => (
+  const brandRows = data.topBrands.map((b, index) => (
     <IndexTable.Row id={b.brand} key={b.brand} position={index}>
       <IndexTable.Cell>
         <Text variant="bodyMd" fontWeight="bold" as="span">
@@ -268,7 +275,7 @@ export default function AnalyticsDashboard() {
                 </Text>
                 {data.sizeDistribution.length > 0 ? (
                   <BlockStack gap="300">
-                    {data.sizeDistribution.map((item: any) => {
+                    {data.sizeDistribution.map((item) => {
                       const pct = data.totalRecommendations > 0
                         ? Math.round((item.count / data.totalRecommendations) * 100)
                         : 0;

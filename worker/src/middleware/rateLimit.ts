@@ -1,66 +1,66 @@
-import type { AppEnv } from '../index'
-import { createMiddleware } from 'hono/factory';
-import { UsageCounter } from '../durable-objects/UsageCounter';
+import { Actions } from '../durable-objects/UsageCounter'
+import type { MerchantKVRecord } from '../types'
+import { syncTrialUsage } from '../persistence'
 
-export const rateLimitMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
-  const org = ctx.var.org;
+export interface QuotaDecision {
+  allowed: boolean
+  usageRemaining: number | null
+  milestoneCrossed: boolean
+}
 
-  // Paid tier limits are not yet defined; currently unconstrained (see TECHNICAL_DEBT.md C8)
+interface CounterResponse {
+  allowed: boolean
+  usage_remaining: number
+  milestone_crossed: boolean
+}
+
+function isCounterResponse(value: unknown): value is CounterResponse {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const record = value as Record<string, unknown>
+  return typeof record.allowed === 'boolean' &&
+    typeof record.usage_remaining === 'number' && Number.isSafeInteger(record.usage_remaining) &&
+    typeof record.milestone_crossed === 'boolean'
+}
+
+/**
+ * Debits a trial only after the caller has produced a valid recommendation.
+ * A DO serializes this state transition for a single organization.
+ */
+export async function consumeTrialQuota(env: Env, org: MerchantKVRecord): Promise<QuotaDecision> {
   if (org.plan_tier === 'paid') {
-    return await next();
+    return { allowed: true, usageRemaining: null, milestoneCrossed: false }
   }
 
-  const doId = ctx.env.USAGE_COUNTER.idFromName(org.org_id);
-  const counter = ctx.env.USAGE_COUNTER.get(doId);
-
-  const counterRes = await counter.fetch("http://do/action", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  const counter = env.USAGE_COUNTER.get(env.USAGE_COUNTER.idFromName(org.org_id))
+  const response = await counter.fetch('http://usage-counter/action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      action: "check_and_decrement_trial",
+      action: Actions.check_and_decrement_trial,
       org_id: org.org_id,
+      plan_tier: org.plan_tier,
+      initial_usage_remaining: org.trial_requests_remaining,
     }),
-  });
+  })
 
-  if (!counterRes.ok) {
-    return ctx.json({ error: "Internal Error", message: "Failed to verify usage quota" }, 500)
-  }
-  const result = (await counterRes.json()) as {
-    allowed: boolean;
-    usage_remaining: number;
-    milestone_crossed?: boolean;
-  };
-  if (!result.allowed) {
-    return ctx.json(
-      {
-        error: "Too Many Requests",
-        message: "Trial quota exhausted. Please upgrade to a paid plan.",
-      },
-      429
-    );
-  }
-  // If usage hit a milestone checkpoint (e.g. 100, 200, 500 requests used),
-  // asynchronously flush remaining quota to Neon Postgres without blocking the HTTP response!
-  if (result.milestone_crossed) {
-    ctx.executionCtx.waitUntil(
-      syncMilestoneToPostgres(ctx.env.DATABASE_URL, org.org_id, result.usage_remaining)
-    );
+  if (!response.ok) {
+    throw new Error(`Usage counter returned ${response.status}`)
   }
 
-  // Pass control downstream to route handlers
-  await next();
-})
-
-async function syncMilestoneToPostgres(
-  databaseUrl: string,
-  orgId: string,
-  remaining: number
-) {
-  try {
-    // We use Neon serverless driver or SQL HTTP query to sync remaining trial requests
-    // (We will wire the exact driver call once db helper is connected)
-    console.log(`[Milestone Sync] Org ${orgId} synced remaining trial: ${remaining}`);
-  } catch (err) {
-    console.error(`[Milestone Sync Error] Failed to sync org ${orgId}:`, err);
+  const result: unknown = await response.json()
+  if (!isCounterResponse(result)) {
+    throw new Error('Usage counter returned an invalid response')
   }
+
+  return {
+    allowed: result.allowed,
+    usageRemaining: result.usage_remaining,
+    milestoneCrossed: result.milestone_crossed,
+  }
+}
+
+export function checkpointTrialUsage(env: Env, orgId: string, quota: QuotaDecision): Promise<void> | null {
+  return quota.milestoneCrossed && quota.usageRemaining !== null
+    ? syncTrialUsage(env.USAGE_SYNC_DATABASE_URL, orgId, quota.usageRemaining)
+    : null
 }

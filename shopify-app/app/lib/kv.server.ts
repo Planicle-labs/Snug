@@ -87,15 +87,24 @@ export async function pushChartToKV(orgId: string, garmentType: string) {
     return kvDelete(key);
   }
 
-  const kvData = charts.map((c: any) => ({
+  // A database query without ORDER BY has no stable order. The Worker also
+  // normalizes this defensively, but publishing ordered rows keeps every KV
+  // consumer consistent and makes boundary recommendations explainable.
+  const orderedCharts = [...charts].sort((left: any, right: any) => {
+    const leftBodyMid = (Number(left.chestMinCm) + Number(left.chestMaxCm)) / 2 - Number(left.easeValueCm);
+    const rightBodyMid = (Number(right.chestMinCm) + Number(right.chestMaxCm)) / 2 - Number(right.easeValueCm);
+    return leftBodyMid - rightBodyMid;
+  });
+
+  const kvData = orderedCharts.map((c: any) => ({
     size_label: c.sizeLabel,
     fit_type: c.fitType,
     chest_min_cm: Number(c.chestMinCm),
     chest_max_cm: Number(c.chestMaxCm),
-    length_min_cm: c.lengthMinCm ? Number(c.lengthMinCm) : null,
-    length_max_cm: c.lengthMaxCm ? Number(c.lengthMaxCm) : null,
-    shoulder_min_cm: c.shoulderMinCm ? Number(c.shoulderMinCm) : null,
-    shoulder_max_cm: c.shoulderMaxCm ? Number(c.shoulderMaxCm) : null,
+    length_min_cm: c.lengthMinCm === null ? null : Number(c.lengthMinCm),
+    length_max_cm: c.lengthMaxCm === null ? null : Number(c.lengthMaxCm),
+    shoulder_min_cm: c.shoulderMinCm === null ? null : Number(c.shoulderMinCm),
+    shoulder_max_cm: c.shoulderMaxCm === null ? null : Number(c.shoulderMaxCm),
     ease_value_cm: Number(c.easeValueCm),
     ease_source: c.easeSource,
   }));
