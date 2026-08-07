@@ -41,9 +41,9 @@ const FIT_TYPES = [
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const { session } = await authenticate.admin(request);
     const shop = session.shop;
-    const dbClient = db as any;
-    const orgTable = organizations as any;
-    const fitSizeChartsTable = fitSizeCharts as any;
+    const dbClient = db;
+    const orgTable = organizations;
+    const fitSizeChartsTable = fitSizeCharts;
 
     const [org] = await dbClient
         .select()
@@ -66,9 +66,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export const action = async ({ request }: ActionFunctionArgs) => {
     const { session } = await authenticate.admin(request);
     const shop = session.shop;
-    const dbClient = db as any;
-    const orgTable = organizations as any;
-    const fitSizeChartsTable = fitSizeCharts as any;
+    const dbClient = db;
+    const orgTable = organizations;
+    const fitSizeChartsTable = fitSizeCharts;
 
     const formData = await request.formData();
     const intent = formData.get("intent");
@@ -336,7 +336,7 @@ export default function SizeCharts() {
                                 </Text>
                             ) : (
                                 <BlockStack gap="200">
-                                    {sizeCharts.map((chart: any) => (
+                                    {sizeCharts.map((chart) => (
                                         <InlineStack key={chart.id} align="space-between">
                                             <InlineStack gap="200">
                                                 <Text as="span" fontWeight="medium">{chart.garmentType}</Text>

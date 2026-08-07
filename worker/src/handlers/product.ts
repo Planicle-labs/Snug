@@ -1,46 +1,30 @@
-import type { Context } from 'hono';
-import type { AppEnv } from '../index';
-
-export interface ProductMappingKVRecord {
-  product_id: string;
-  garment_type: string;
-  is_active: boolean;
-}
+import type { Context } from 'hono'
+import type { AppEnv } from '../index'
+import { parseProductMappings } from '../validation'
 
 export async function handleProductMappingLookup(ctx: Context<AppEnv>) {
-  const rawProductId = ctx.req.param("product_id")?.trim();
-
-  if (!rawProductId) {
-    return ctx.json({ error: "Bad Request", message: "Missing product_id parameter" }, 400);
+  const productId = ctx.req.param('product_id')?.trim()
+  if (!productId || productId.length > 128) {
+    return ctx.json({ error: 'Bad Request', message: 'Missing or invalid product_id parameter' }, 400)
   }
 
-  const org = ctx.var.org;
-
-  // 1. Fetch merchant product mappings from KV
-  const mappings = (await ctx.env.KV.get(
-    `merchant:${org.org_id}:mappings`,
-    "json"
-  )) as Record<string, ProductMappingKVRecord> | null;
-
-  if (!mappings || !mappings[rawProductId]) {
-    return ctx.json(
-      {
-        mapped: false,
-        shopify_product_id: rawProductId,
-      },
-      200
-    );
+  const mappingsRaw = await ctx.env.KV.get(`merchant:${ctx.var.org.org_id}:mappings`, 'json')
+  if (mappingsRaw === null) {
+    return ctx.json({ mapped: false, shopify_product_id: productId }, 200)
   }
 
-  const mapping = mappings[rawProductId];
+  const mappings = parseProductMappings(mappingsRaw)
+  if (!mappings) {
+    return ctx.json({ error: 'Unprocessable Entity', message: 'Merchant product mappings are malformed; refresh the configuration' }, 422)
+  }
 
-  return ctx.json(
-    {
-      mapped: true,
-      shopify_product_id: rawProductId,
-      garment_type: mapping.garment_type,
-      is_active: mapping.is_active,
-    },
-    200
-  );
+  const mapping = mappings[productId]
+  if (!mapping) return ctx.json({ mapped: false, shopify_product_id: productId }, 200)
+
+  return ctx.json({
+    mapped: true,
+    shopify_product_id: productId,
+    garment_type: mapping.garment_type,
+    is_active: mapping.is_active,
+  }, 200)
 }

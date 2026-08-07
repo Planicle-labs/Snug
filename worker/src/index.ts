@@ -1,20 +1,11 @@
 import { Hono } from 'hono'
-import type { KVNamespace, DurableObjectNamespace } from '@cloudflare/workers-types'
-import type { MerchantKVRecord } from './middleware/auth'
+import type { MerchantKVRecord } from './types'
 
 import { corsMiddleware } from './middleware/cors'
 import { authMiddleware } from './middleware/auth'
-import { rateLimitMiddleware } from './middleware/rateLimit'
 import { handleSizePrediction } from './handlers/size'
 import { handleAdminUsageSync } from './handlers/adminUsage'
 import { handleProductMappingLookup } from './handlers/product'
-
-interface Env{
-  DATABASE_URL: string,
-  ENVIRONMENT: string,
-  KV: KVNamespace,
-  USAGE_COUNTER:DurableObjectNamespace
-}
 
 export type AppEnv = {
   Bindings: Env;
@@ -36,14 +27,20 @@ app.get('/health', (c) => {
   })
 })
 
-// Storefront Prediction Endpoint (Requires Auth + Rate Limiting)
-app.post('/v1/size', authMiddleware, rateLimitMiddleware, handleSizePrediction)
+// Storefront Prediction Endpoint. It debits trial quota only after a prediction
+// has passed request and configuration validation.
+app.post('/v1/size', authMiddleware, handleSizePrediction)
 
 // Storefront Product Mapping Lookup (Requires Auth)
 app.get('/v1/product/:product_id', authMiddleware, handleProductMappingLookup)
 
 // Internal Admin Usage Sync Endpoint (Protected by X-Internal-Secret)
 app.get('/v1/admin/usage', handleAdminUsageSync)
+
+app.onError((error, ctx) => {
+  console.error(JSON.stringify({ event: 'unhandled_request_error', path: ctx.req.path, message: error instanceof Error ? error.message : 'Unknown error' }))
+  return ctx.json({ error: 'Internal Error', message: 'Unexpected server error' }, 500)
+})
 
 export { UsageCounter } from './durable-objects/UsageCounter'
 export default app
