@@ -4,13 +4,23 @@ name = "snug-worker"
 main = "src/index.ts"
 #  Cloudflare occasionally changes how the Workers runtime behaves.
 # They use dates to version these changes so existing Workers are not broken by updates.
-compatibility_date = "2025-05-01"
+compatibility_date = "2026-08-02"
  # enables a subset of Node.js APIs inside the Worker runtime.
  # We need this specifically for the @neondatabase/serverless package
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-ENVIRONMENT="development"
+# The unqualified deploy target is production. Local development overrides this
+# in an untracked .dev.vars file; never make production accept development-only
+# credentials.
+ENVIRONMENT="production"
+
+[secrets]
+required = ["DATABASE_URL", "USAGE_SYNC_DATABASE_URL", "INTERNAL_ADMIN_SECRET"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
 
 [[kv_namespaces]]
 # name you use to access it in code via env.KV

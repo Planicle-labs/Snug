@@ -22,8 +22,8 @@ import { randomUUID } from "crypto";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const { session } = await authenticate.admin(request);
     const shop = session.shop;
-    const dbClient = db as any;
-    const orgTable = organizations as any;
+    const dbClient = db;
+    const orgTable = organizations;
 
     const [org] = await dbClient
         .select()
@@ -40,9 +40,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export const action = async ({ request }: ActionFunctionArgs) => {
     const { session } = await authenticate.admin(request);
     const shop = session.shop;
-    const dbClient = db as any;
-    const orgTable = organizations as any;
-    const brandRequestsTable = brandRequests as any;
+    const dbClient = db;
+    const orgTable = organizations;
+    const brandRequestsTable = brandRequests;
 
     const formData = await request.formData();
     const intent = formData.get("intent");

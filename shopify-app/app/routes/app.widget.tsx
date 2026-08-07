@@ -30,12 +30,25 @@ const POSITION_OPTIONS = [
   { label: "Below product price", value: "below_price" },
 ];
 
+interface WidgetConfigValues {
+  buttonText?: string;
+  buttonColor?: string;
+  buttonTextColor?: string;
+  primaryColor?: string;
+  showConfidence?: boolean;
+  showReasoning?: boolean;
+}
+
+function isWidgetConfig(value: unknown): value is WidgetConfigValues {
+  return typeof value === "object" && value !== null;
+}
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
 
-  const dbClient = db as any;
-  const orgTable = organizations as any;
-  const widgetConfigsTable = widgetConfigs as any;
+  const dbClient = db;
+  const orgTable = organizations;
+  const widgetConfigsTable = widgetConfigs;
 
   const [org] = await dbClient
     .select()
@@ -61,7 +74,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return {
     widgetActive: Boolean(org.widgetActive),
     brandSlug: (org.brandSlug as string) || null,
-    config: (existingConfig as Record<string, any>) || null,
+    config: existingConfig ?? null,
     shop: session.shop,
   };
 };
@@ -69,9 +82,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
-  const dbClient = db as any;
-  const orgTable = organizations as any;
-  const widgetConfigsTable = widgetConfigs as any;
+  const dbClient = db;
+  const orgTable = organizations;
+  const widgetConfigsTable = widgetConfigs;
 
   const formData = await request.formData();
   const intent = formData.get("intent");
@@ -181,7 +194,7 @@ export default function WidgetCustomizer() {
   const navigation = useNavigation();
   const isSubmitting = navigation.state === "submitting";
 
-  const rawConfig = typeof config?.config === "object" && config?.config !== null ? config.config as any : {};
+  const rawConfig = isWidgetConfig(config?.config) ? config.config : {};
 
   const [position, setPosition] = useState(config?.position || "below_add_to_cart");
   const [buttonText, setButtonText] = useState(rawConfig.buttonText || "Find Your Size");

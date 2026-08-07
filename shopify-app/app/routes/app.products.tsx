@@ -30,10 +30,10 @@ const GARMENT_TYPES = [
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const { session } = await authenticate.admin(request);
     const shop = session.shop;
-    const dbClient = db as any;
-    const orgTable = organizations as any;
-    const fitSizeChartsTable = fitSizeCharts as any;
-    const garmentMappingsTable = garmentMappings as any;
+    const dbClient = db;
+    const orgTable = organizations;
+    const fitSizeChartsTable = fitSizeCharts;
+    const garmentMappingsTable = garmentMappings;
 
     const [org] = await dbClient
         .select()
@@ -69,9 +69,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export const action = async ({ request }: ActionFunctionArgs) => {
     const { session } = await authenticate.admin(request);
     const shop = session.shop;
-    const dbClient = db as any;
-    const orgTable = organizations as any;
-    const garmentMappingsTable = garmentMappings as any;
+    const dbClient = db;
+    const orgTable = organizations;
+    const garmentMappingsTable = garmentMappings;
 
     const formData = await request.formData();
     const intent = formData.get("intent");
@@ -245,7 +245,7 @@ export default function Products() {
                                 </Text>
                             ) : (
                                 <BlockStack gap="200">
-                                    {mappings.map((row: any) => (
+                                    {mappings.map((row) => (
                                         <InlineStack key={row.id} align="space-between">
                                             <Text as="span">{row.shopifyProductId}</Text>
                                             <InlineStack gap="200">

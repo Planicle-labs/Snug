@@ -12,7 +12,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // Webhook requests can trigger multiple times and after an app has already been uninstalled.
   // If this webhook already ran, the session may have been deleted previously.
   if (session) {
-    await (db as any).delete(sessions as any).where(eq((sessions as any).shop, shop));
+    await db.delete(sessions).where(eq(sessions.shop, shop));
   }
 
   return new Response();
