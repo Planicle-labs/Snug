@@ -4,6 +4,83 @@ Every problem, gap, contradiction, and bug found during the full codebase audit 
 
 ---
 
+## Audit refresh — prioritized active blockers (2026-08-10)
+
+This section records the follow-up audit findings in execution order. Items already
+listed below are cross-referenced rather than duplicated.
+
+### P0 — Prevents a working dashboard or storefront recommendation flow
+
+**P0-1. Dashboard TypeScript build is blocked by duplicate Drizzle package instances**
+- `shopify-app` resolves Drizzle query utilities and the `@snug/db` schema through
+  two different physical `drizzle-orm@0.44.7` installations. TypeScript treats the
+  otherwise identical `PgTable` and `SQL` types as incompatible, producing errors
+  across analytics and webhook routes.
+- **Impact:** `shopify-app` cannot pass `tsc --noEmit` or produce a reliable
+  production build.
+- **Fix:** Deduplicate/align the workspace's Drizzle peer dependency resolution,
+  reinstall from the lockfile, and verify `pnpm --filter snug typecheck` passes.
+
+**P0-2. Product mappings never reach the KV record consumed by the Worker**
+- `app.products.tsx` persists `garment_mappings` in Neon, but does not publish
+  `merchant:{org_id}:mappings`. Both `GET /v1/product/:product_id` and `POST
+  /v1/size` read that KV record exclusively.
+- **Impact:** a merchant can see a successful mapping in the dashboard while every
+  storefront lookup returns `mapped: false` or a 404 prediction error.
+- **Fix:** add a mapping KV sync helper and invoke it after create, update, and
+  delete actions; add an integration test for the Neon-to-KV contract.
+
+**P0-3. Brand setup calls an endpoint that is not implemented**
+- Reconfirmed existing item **C4**: `app.brand.tsx` requests
+  `GET /v1/brands/search`, but the Worker exposes no such route.
+- **Impact:** merchants cannot validate or select their reference brand through
+  the dashboard.
+- **Fix:** implement and test the search endpoint, or change the dashboard to use
+  an available, authorized data source.
+
+**P0-4. Deployment URLs and Shopify API versions are still inconsistent**
+- Reconfirmed existing items **F1**, **F2**, and **G3**: the app configuration
+  still uses `https://example.com` for its application and redirect URLs, while
+  the TOML webhook API version differs from `shopify.server.ts`.
+- **Impact:** a deployed app cannot complete OAuth reliably and may register or
+  process webhooks against an unintended API version.
+- **Fix:** set the real deployed URL and callback, then choose one supported API
+  version and apply it consistently.
+
+### P1 — Breaks or degrades the storefront widget after the P0 flow is restored
+
+**P1-1. Widget renders for unmapped products and after mapping lookup failures**
+- `snug-widget.js` calls `showWidgetButton()` when the lookup reports
+  `mapped: false` or when the request fails. The button then opens a modal that
+  cannot return a recommendation for that product.
+- **Impact:** shoppers are offered a sizing experience that ends in an avoidable
+  error, including during Worker/network failures.
+- **Fix:** render only when the lookup returns an active mapping; use a silent
+  failure state for lookup errors.
+
+**P1-2. Widget input options are not aligned with Worker-supported garment types**
+- The widget hard-codes `pants`, `jeans`, `shorts`, and `dress`, but the Worker
+  and database only support `tshirt`, `shirt`, `polo`, `sweatshirt`, `hoodie`,
+  `jacket`, `kurta`, and `top`.
+- **Impact:** shoppers can submit selections that cannot have a matching
+  reference chart and receive a 404 instead of a recommendation.
+- **Fix:** source supported brands, garments, and sizes from the Worker (or a
+  shared generated manifest) and constrain the UI to that contract.
+
+### P2 — Maintains an accurate and actionable engineering register
+
+**P2-1. This debt register contains stale findings marked as active**
+- The 2026-08-10 audit verified that the checked-in migration already contains
+  the current trial fields and sizing tables, while **A1–A3** still describe an
+  older state. Several Worker issues below have also been fixed by the recent
+  `0744d83`, `0de8dd8`, and `4ffc7a1` commits.
+- **Impact:** contributors can spend time fixing already-resolved work or make
+  incorrect assumptions about the deployed schema.
+- **Fix:** reconcile each historical item against code and deployment state,
+  mark resolved entries explicitly, and retain only externally verified gaps.
+
+---
+
 ## A. Schema & Database
 
 **A1. Pushed migration is out of sync with current schema**
