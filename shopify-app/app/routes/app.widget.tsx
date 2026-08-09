@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { useLoaderData, useActionData, Form, useNavigation } from "react-router";
 import {
@@ -16,6 +16,8 @@ import {
   Box,
   Badge,
   Grid,
+  Divider,
+  Tag,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
@@ -30,11 +32,34 @@ const POSITION_OPTIONS = [
   { label: "Below product price", value: "below_price" },
 ];
 
+const MODAL_POSITION_OPTIONS = [
+  { label: "Center Overlay Modal", value: "center" },
+  { label: "Bottom-Left Floating Modal", value: "bottom_left" },
+];
+
+interface MasterBrand {
+  slug: string;
+  name: string;
+  color: string;
+}
+
+const DEFAULT_CONNECTED_BRANDS: MasterBrand[] = [
+  { slug: "snitch", name: "Snitch", color: "#111827" },
+  { slug: "bewakoof", name: "Bewakoof", color: "#EAB308" },
+  { slug: "zara", name: "Zara", color: "#000000" },
+  { slug: "hm", name: "H&M", color: "#DC2626" },
+  { slug: "levis", name: "Levi's", color: "#B91C1C" },
+  { slug: "nike", name: "Nike", color: "#0F172A" },
+  { slug: "uniqlo", name: "Uniqlo", color: "#EF4444" },
+  { slug: "roadster", name: "Roadster", color: "#1E293B" },
+];
+
 interface WidgetConfigValues {
   buttonText?: string;
   buttonColor?: string;
   buttonTextColor?: string;
   primaryColor?: string;
+  modalPosition?: string;
   showConfidence?: boolean;
   showReasoning?: boolean;
 }
@@ -45,10 +70,9 @@ function isWidgetConfig(value: unknown): value is WidgetConfigValues {
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-
-  const dbClient = db;
-  const orgTable = organizations;
-  const widgetConfigsTable = widgetConfigs;
+  const dbClient = db as any;
+  const orgTable = organizations as any;
+  const widgetConfigsTable = widgetConfigs as any;
 
   const [org] = await dbClient
     .select()
@@ -82,9 +106,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
-  const dbClient = db;
-  const orgTable = organizations;
-  const widgetConfigsTable = widgetConfigs;
+  const dbClient = db as any;
+  const orgTable = organizations as any;
+  const widgetConfigsTable = widgetConfigs as any;
 
   const formData = await request.formData();
   const intent = formData.get("intent");
@@ -141,8 +165,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (intent === "save-config") {
     const position = (formData.get("position") as string) || "below_add_to_cart";
-    const buttonText = (formData.get("buttonText") as string) || "Find Your Size";
-    const buttonColor = (formData.get("buttonColor") as string) || "#000000";
+    const modalPosition = (formData.get("modalPosition") as string) || "center";
+    const buttonText = (formData.get("buttonText") as string) || "Find Your Recommended Size";
+    const buttonColor = (formData.get("buttonColor") as string) || "#008060";
     const buttonTextColor = (formData.get("buttonTextColor") as string) || "#ffffff";
     const showConfidence = formData.get("showConfidence") === "on";
     const showReasoning = formData.get("showReasoning") === "on";
@@ -157,6 +182,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       buttonText,
       buttonColor,
       buttonTextColor,
+      modalPosition,
       showConfidence,
       showReasoning,
       primaryColor: buttonColor,
@@ -196,115 +222,183 @@ export default function WidgetCustomizer() {
 
   const rawConfig = isWidgetConfig(config?.config) ? config.config : {};
 
+  // Merchant Customizer State
   const [position, setPosition] = useState(config?.position || "below_add_to_cart");
-  const [buttonText, setButtonText] = useState(rawConfig.buttonText || "Find Your Size");
-  const [buttonColor, setButtonColor] = useState(rawConfig.buttonColor || rawConfig.primaryColor || "#000000");
+  const [modalPosition, setModalPosition] = useState(rawConfig.modalPosition || "center");
+  const [buttonText, setButtonText] = useState(rawConfig.buttonText || "Find Your Recommended Size");
+  const [buttonColor, setButtonColor] = useState(rawConfig.buttonColor || rawConfig.primaryColor || "#008060");
   const [buttonTextColor, setButtonTextColor] = useState(rawConfig.buttonTextColor || "#ffffff");
   const [showConfidence, setShowConfidence] = useState(rawConfig.showConfidence ?? true);
   const [showReasoning, setShowReasoning] = useState(rawConfig.showReasoning ?? true);
-  const [previewTab, setPreviewTab] = useState<"standard" | "boundary">("boundary");
+
+  // Storefront Sandbox State (State A: Uncalibrated vs State B: Calibrated)
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalStep, setModalStep] = useState<1 | 2 | 3>(1);
+  const [shopperRef, setShopperRef] = useState<{
+    brand: string;
+    garment: string;
+    size: string;
+    fitPreference: string;
+  } | null>(null);
+
+  // Form inputs for 3-turn modal
+  const [selectedRefBrand, setSelectedRefBrand] = useState("Snitch");
+  const [selectedGarment, setSelectedGarment] = useState("T-Shirt");
+  const [selectedRefSize, setSelectedRefSize] = useState("L");
+  const [selectedFitPref, setSelectedFitPref] = useState("perfect");
+
+  // Merchant's chosen reference brands list (local storage sync or default stub)
+  const [connectedBrands, setConnectedBrands] = useState<MasterBrand[]>(DEFAULT_CONNECTED_BRANDS);
+
+  // Local browser data saving stubs (matching app.brand.tsx pattern)
+  const [isWidgetActiveLocal, setIsWidgetActiveLocal] = useState(widgetActive);
+  const [mockSuccessBanner, setMockSuccessBanner] = useState(false);
+
+  // TODO: Replace localStorage mock with production DB sync
+  useEffect(() => {
+    try {
+      const savedBrands = localStorage.getItem("snug_selected_brands");
+      if (savedBrands) {
+        const parsed = JSON.parse(savedBrands);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const matched = DEFAULT_CONNECTED_BRANDS.filter((b) => parsed.includes(b.slug));
+          if (matched.length > 0) setConnectedBrands(matched);
+        }
+      }
+
+      const savedWidgetConfig = localStorage.getItem("snug_widget_config");
+      if (savedWidgetConfig) {
+        const parsedConfig = JSON.parse(savedWidgetConfig);
+        if (parsedConfig.position) setPosition(parsedConfig.position);
+        if (parsedConfig.modalPosition) setModalPosition(parsedConfig.modalPosition);
+        if (parsedConfig.buttonText) setButtonText(parsedConfig.buttonText);
+        if (parsedConfig.buttonColor) setButtonColor(parsedConfig.buttonColor);
+        if (parsedConfig.buttonTextColor) setButtonTextColor(parsedConfig.buttonTextColor);
+        if (typeof parsedConfig.showConfidence === "boolean") setShowConfidence(parsedConfig.showConfidence);
+        if (typeof parsedConfig.showReasoning === "boolean") setShowReasoning(parsedConfig.showReasoning);
+        if (typeof parsedConfig.isWidgetActive === "boolean") setIsWidgetActiveLocal(parsedConfig.isWidgetActive);
+      }
+    } catch (e) {
+      console.warn("[WidgetCustomizer] localStorage read error:", e);
+    }
+  }, []);
+
+  // TODO: Replace localStorage mock with production DB sync
+  const handleSaveConfigMock = useCallback((e?: React.FormEvent) => {
+    try {
+      const payload = {
+        position,
+        modalPosition,
+        buttonText,
+        buttonColor,
+        buttonTextColor,
+        showConfidence,
+        showReasoning,
+        isWidgetActive: isWidgetActiveLocal,
+        updatedAt: new Date().toISOString(),
+      };
+      localStorage.setItem("snug_widget_config", JSON.stringify(payload));
+      setMockSuccessBanner(true);
+    } catch (err) {
+      console.error("[WidgetCustomizer] localStorage save error:", err);
+    }
+  }, [position, modalPosition, buttonText, buttonColor, buttonTextColor, showConfidence, showReasoning, isWidgetActiveLocal]);
+
+  // TODO: Replace localStorage mock with production DB sync
+  const handleToggleActivationMock = useCallback(() => {
+    const nextState = !isWidgetActiveLocal;
+    setIsWidgetActiveLocal(nextState);
+    try {
+      const saved = localStorage.getItem("snug_widget_config");
+      const existing = saved ? JSON.parse(saved) : {};
+      localStorage.setItem("snug_widget_config", JSON.stringify({
+        ...existing,
+        isWidgetActive: nextState,
+        updatedAt: new Date().toISOString(),
+      }));
+      setMockSuccessBanner(true);
+    } catch (err) {
+      console.error("[WidgetCustomizer] localStorage activation toggle error:", err);
+    }
+  }, [isWidgetActiveLocal]);
+
+  // Complete modal flow -> Calibrate shopper reference
+  const handleCalculateSize = useCallback(() => {
+    setShopperRef({
+      brand: selectedRefBrand,
+      garment: selectedGarment,
+      size: selectedRefSize,
+      fitPreference: selectedFitPref,
+    });
+    setIsModalOpen(false);
+  }, [selectedRefBrand, selectedGarment, selectedRefSize, selectedFitPref]);
+
+  // Reset shopper calibration state in preview sandbox
+  const handleResetShopperSandbox = useCallback(() => {
+    setShopperRef(null);
+    setModalStep(1);
+    setIsModalOpen(false);
+  }, []);
 
   return (
-    <Page title="Storefront Widget Visual Customizer" subtitle="Customize button branding, colors, position, and prediction options">
+    <Page
+      title="Storefront Widget Visual Customizer"
+      subtitle="Configure how the Snug size recommendation widget renders on your product detail pages."
+      compactTitle
+    >
       <Layout>
+        {/* Top Notifications */}
+        {(actionData?.error || actionData?.configSaved || mockSuccessBanner) && (
+          <Layout.Section>
+            {actionData?.error && (
+              <Banner tone="critical" title="Error">
+                <Text as="p" variant="bodyMd">{actionData.error}</Text>
+              </Banner>
+            )}
+            {(actionData?.configSaved || mockSuccessBanner) && (
+              <Banner tone="success" title="Settings Saved" onDismiss={() => setMockSuccessBanner(false)}>
+                <Text as="p" variant="bodyMd">
+                  Your widget branding and layout settings have been saved to browser local storage.
+                </Text>
+              </Banner>
+            )}
+          </Layout.Section>
+        )}
+
+        {/* Settings & Live Interactive Sandbox Grid */}
         <Layout.Section>
-          {actionData?.error && (
-            <Banner tone="critical" title="Error">
-              <Text as="p" variant="bodyMd">{actionData.error}</Text>
-            </Banner>
-          )}
-
-          {actionData?.activated && (
-            <Banner tone="success" title="Widget Activated">
-              <Text as="p" variant="bodyMd">
-                The Snug widget is now active and enabled on your storefront.
-              </Text>
-            </Banner>
-          )}
-
-          {actionData?.deactivated && (
-            <Banner tone="warning" title="Widget Deactivated">
-              <Text as="p" variant="bodyMd">
-                The Snug widget has been temporarily turned off.
-              </Text>
-            </Banner>
-          )}
-
-          {actionData?.configSaved && (
-            <Banner tone="success" title="Settings Saved">
-              <Text as="p" variant="bodyMd">
-                Your visual customizer settings have been saved and pushed to edge KV.
-              </Text>
-            </Banner>
-          )}
-        </Layout.Section>
-
-        {/* Status Section */}
-        <Layout.Section>
-          <Card>
-            <BlockStack gap="400">
-              <InlineStack align="space-between">
-                <Text as="h2" variant="headingMd">Widget Deployment Status</Text>
-                <Badge tone={widgetActive ? "success" : "attention"}>
-                  {widgetActive ? "Active on Storefront" : "Inactive"}
-                </Badge>
-              </InlineStack>
-
-              {brandSlug ? (
-                <Form method="post">
-                  <input type="hidden" name="intent" value={widgetActive ? "deactivate" : "activate"} />
-                  <InlineStack gap="300">
-                    <Button
-                      variant={widgetActive ? "secondary" : "primary"}
-                      tone={widgetActive ? "critical" : undefined}
-                      submit
-                      loading={isSubmitting}
-                    >
-                      {widgetActive ? "Deactivate Storefront Widget" : "Activate Storefront Widget"}
-                    </Button>
-                  </InlineStack>
-                </Form>
-              ) : (
-                <Banner tone="warning">
-                  <Text as="p" variant="bodyMd">
-                    Please complete your reference brand setup before activating the widget on product pages.
-                  </Text>
-                  <Box paddingBlockStart="200">
-                    <Button url="/app/brand" variant="plain">
-                      Go to Brand Setup
-                    </Button>
-                  </Box>
-                </Banner>
-              )}
-            </BlockStack>
-          </Card>
-        </Layout.Section>
-
-        {/* Settings & Live Preview Grid */}
-        <Layout.Section>
-          <Grid>
-            {/* Left Column: Controls */}
-            <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
-              <Card>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(440px, 1fr))",
+              gap: "20px",
+              width: "100%",
+              alignItems: "start",
+            }}
+          >
+            {/* Left Column: Merchant Customizer Controls */}
+            <div>
+              <Card padding="500">
                 <BlockStack gap="400">
-                  <Text as="h2" variant="headingMd">Visual & Layout Settings</Text>
+                  <Text as="h2" variant="headingMd">Widget Appearance & Position</Text>
+                  <Divider />
 
-                  <Form method="post">
+                  <Form method="post" onSubmit={handleSaveConfigMock}>
                     <input type="hidden" name="intent" value="save-config" />
                     <BlockStack gap="400">
                       <TextField
-                        label="Button Label Text"
+                        label="Button Label Text (Uncalibrated State)"
                         name="buttonText"
                         value={buttonText}
                         onChange={setButtonText}
                         autoComplete="off"
-                        helpText="Text shown on the size recommender button"
+                        helpText="Text shown on the initial 'Find Your Size' button before shopper enters reference"
                       />
 
-                      <InlineStack gap="400">
+                      <InlineStack gap="300">
                         <div style={{ flex: 1 }}>
                           <TextField
-                            label="Button Background"
+                            label="Button Accent Color"
                             name="buttonColor"
                             value={buttonColor}
                             onChange={setButtonColor}
@@ -314,7 +408,7 @@ export default function WidgetCustomizer() {
                         </div>
                         <div style={{ flex: 1 }}>
                           <TextField
-                            label="Button Text Color"
+                            label="Text Color"
                             name="buttonTextColor"
                             value={buttonTextColor}
                             onChange={setButtonTextColor}
@@ -325,22 +419,35 @@ export default function WidgetCustomizer() {
                       </InlineStack>
 
                       <Select
-                        label="Storefront Placement"
+                        label="Product Page Button Position"
                         name="position"
                         options={POSITION_OPTIONS}
                         onChange={setPosition}
                         value={position}
-                        helpText="Target anchor section on your shop's product detail page"
+                        helpText="Location of the trigger button on your Shopify product detail page"
                       />
 
+                      <Select
+                        label="Recommender Modal Overlay Position"
+                        name="modalPosition"
+                        options={MODAL_POSITION_OPTIONS}
+                        onChange={setModalPosition}
+                        value={modalPosition}
+                        helpText="Choose where the 3-turn recommendation modal pops up on the shopper's screen"
+                      />
+
+                      <Divider />
+
+                      <Text as="h3" variant="headingSm">Recommendation Options</Text>
+
                       <Checkbox
-                        label="Display confidence match indicators to shoppers"
+                        label="Display fit confidence match indicator (e.g. 98% Match)"
                         checked={showConfidence}
                         onChange={setShowConfidence}
                       />
 
                       <Checkbox
-                        label="Display calculation reasoning & fit details"
+                        label="Display sizing calculation reasoning (e.g. chest ease details)"
                         checked={showReasoning}
                         onChange={setShowReasoning}
                       />
@@ -349,7 +456,7 @@ export default function WidgetCustomizer() {
                       <input type="hidden" name="showReasoning" value={showReasoning ? "on" : ""} />
 
                       <Box paddingBlockStart="200">
-                        <Button variant="primary" submit loading={isSubmitting}>
+                        <Button variant="primary" size="large" submit loading={isSubmitting} onClick={() => handleSaveConfigMock()}>
                           Save Customizer Settings
                         </Button>
                       </Box>
@@ -357,251 +464,538 @@ export default function WidgetCustomizer() {
                   </Form>
                 </BlockStack>
               </Card>
-            </Grid.Cell>
+            </div>
 
-            {/* Right Column: Live Interactive Preview */}
-            <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
-              <Card>
+            {/* Right Column: Live Interactive Storefront Sandbox & Deployment Status */}
+            <div>
+              <Card padding="500">
                 <BlockStack gap="400">
-                  <InlineStack align="space-between">
-                    <Text as="h2" variant="headingMd">Live Storefront Preview</Text>
-                    <InlineStack gap="200">
-                      <Button
-                        size="micro"
-                        pressed={previewTab === "standard"}
-                        onClick={() => setPreviewTab("standard")}
-                      >
-                        Single Match
+                  <InlineStack align="space-between" blockAlign="center">
+                    <BlockStack gap="025">
+                      <Text as="h2" variant="headingMd">Live Storefront Sandbox</Text>
+                      <Text as="p" variant="bodyXs" tone="subdued">
+                        Interactive preview of how shoppers experience the widget on your PDP.
+                      </Text>
+                    </BlockStack>
+
+                    {shopperRef && (
+                      <Button size="micro" variant="tertiary" onClick={handleResetShopperSandbox}>
+                        Reset Sandbox
                       </Button>
-                      <Button
-                        size="micro"
-                        pressed={previewTab === "boundary"}
-                        onClick={() => setPreviewTab("boundary")}
-                      >
-                        Two-Size Boundary
-                      </Button>
-                    </InlineStack>
+                    )}
                   </InlineStack>
 
+                  <Divider />
+
                   {/* Mock Product Page Container */}
-                  <div style={{
-                    border: "1px solid #e1e3e5",
-                    borderRadius: "8px",
-                    padding: "20px",
-                    background: "#ffffff",
-                  }}>
-                    <BlockStack gap="300">
-                      <Text variant="headingSm" as="p" tone="subdued">
-                        Mock Product Page
-                      </Text>
-                      
-                      <div style={{ height: "1px", background: "#e1e3e5" }} />
+                  <div
+                    style={{
+                      border: "1px solid #e1e3e5",
+                      borderRadius: "12px",
+                      padding: "16px 20px",
+                      background: "#ffffff",
+                      boxShadow: "0 2px 10px rgba(0,0,0,0.03)",
+                      position: "relative",
+                    }}
+                  >
+                    <BlockStack gap="200">
+                      {/* PDP Header Mock */}
+                      <InlineStack align="space-between" blockAlign="center">
+                        <Text variant="bodyXs" fontWeight="bold" tone="subdued" as="p">
+                          SHOP STOREFRONT PREVIEW
+                        </Text>
+                        <Badge tone="success">In Stock</Badge>
+                      </InlineStack>
+
+                      <div style={{ height: "1px", background: "#f1f2f4" }} />
 
                       {/* Mock Product Title & Price */}
-                      <BlockStack gap="100">
-                        <Text variant="headingLg" as="h3">Classic Cotton Crewneck</Text>
-                        <Text variant="bodyLg" fontWeight="bold" as="p">₹1,999</Text>
+                      <BlockStack gap="025">
+                        <Text variant="headingLg" as="h3">Heavyweight Oversized Cotton Tee</Text>
+                        <Text variant="headingMd" fontWeight="bold" as="p" tone="success">
+                          ₹1,899
+                        </Text>
                       </BlockStack>
 
                       {/* Position: below_price */}
                       {position === "below_price" && (
-                        <div style={{ margin: "8px 0" }}>
-                          <button
-                            type="button"
-                            style={{
-                              backgroundColor: buttonColor,
-                              color: buttonTextColor,
-                              padding: "12px 20px",
-                              borderRadius: "6px",
-                              border: "none",
-                              fontWeight: 600,
-                              fontSize: "14px",
-                              width: "100%",
-                              cursor: "pointer",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              gap: "8px",
-                            }}
-                          >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M20.38 3.46L16 2a4 4 0 01-8 0L3.62 3.46a2 2 0 00-1.34 2.23l.58 3.47a1 1 0 00.99.84H6v10a2 2 0 002 2h8a2 2 0 002-2V10h2.15a1 1 0 00.99-.84l.58-3.47a2 2 0 00-1.34-2.23z"/>
-                            </svg>
-                            <span>{buttonText}</span>
-                          </button>
+                        <div style={{ margin: "4px 0" }}>
+                          {renderWidgetContent()}
                         </div>
                       )}
 
-                      {/* Mock Size Selectors */}
+                      {/* Mock Product Size Selector */}
                       <BlockStack gap="100">
-                        <Text variant="bodySm" fontWeight="semibold" as="p">Select Size:</Text>
-                        <InlineStack gap="200">
-                          {["S", "M", "L", "XL"].map((sz) => (
-                            <div key={sz} style={{
-                              padding: "8px 16px",
-                              border: sz === "M" ? "2px solid #000000" : "1px solid #d1d5db",
-                              borderRadius: "4px",
-                              fontWeight: sz === "M" ? "bold" : "normal",
-                              fontSize: "13px",
-                            }}>
-                              {sz}
-                            </div>
-                          ))}
+                        <InlineStack align="space-between">
+                          <Text variant="bodySm" fontWeight="semibold" as="p">Select Garment Size:</Text>
+                          <Text variant="bodyXs" tone="subdued" as="span">Standard Fit</Text>
+                        </InlineStack>
+                        <InlineStack gap="150">
+                          {["S", "M", "L", "XL"].map((sz) => {
+                            const isRecommended = shopperRef?.size === sz || (!shopperRef && sz === "L");
+                            return (
+                              <div
+                                key={sz}
+                                style={{
+                                  padding: "6px 16px",
+                                  border: isRecommended ? "2px solid #008060" : "1px solid #d1d5db",
+                                  background: isRecommended ? "#e4f5ea" : "#ffffff",
+                                  borderRadius: "6px",
+                                  fontWeight: isRecommended ? "bold" : "normal",
+                                  fontSize: "13px",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                {sz}
+                              </div>
+                            );
+                          })}
                         </InlineStack>
                       </BlockStack>
 
                       {/* Position: below_size_selector */}
                       {position === "below_size_selector" && (
-                        <div style={{ margin: "8px 0" }}>
-                          <button
-                            type="button"
-                            style={{
-                              backgroundColor: buttonColor,
-                              color: buttonTextColor,
-                              padding: "12px 20px",
-                              borderRadius: "6px",
-                              border: "none",
-                              fontWeight: 600,
-                              fontSize: "14px",
-                              width: "100%",
-                              cursor: "pointer",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              gap: "8px",
-                            }}
-                          >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M20.38 3.46L16 2a4 4 0 01-8 0L3.62 3.46a2 2 0 00-1.34 2.23l.58 3.47a1 1 0 00.99.84H6v10a2 2 0 002 2h8a2 2 0 002-2V10h2.15a1 1 0 00.99-.84l.58-3.47a2 2 0 00-1.34-2.23z"/>
-                            </svg>
-                            <span>{buttonText}</span>
-                          </button>
+                        <div style={{ margin: "4px 0" }}>
+                          {renderWidgetContent()}
                         </div>
                       )}
 
                       {/* Mock Add to Cart Button */}
-                      <button type="button" style={{
-                        width: "100%",
-                        padding: "14px",
-                        background: "#111827",
-                        color: "#ffffff",
-                        border: "none",
-                        borderRadius: "6px",
-                        fontWeight: 700,
-                        fontSize: "14px",
-                      }}>
+                      <button
+                        type="button"
+                        style={{
+                          width: "100%",
+                          padding: "12px",
+                          background: "#111827",
+                          color: "#ffffff",
+                          border: "none",
+                          borderRadius: "8px",
+                          fontWeight: 700,
+                          fontSize: "14px",
+                          cursor: "pointer",
+                        }}
+                      >
                         Add to Cart
                       </button>
 
                       {/* Position: below_add_to_cart */}
                       {position === "below_add_to_cart" && (
-                        <div style={{ margin: "8px 0" }}>
-                          <button
-                            type="button"
-                            style={{
-                              backgroundColor: buttonColor,
-                              color: buttonTextColor,
-                              padding: "12px 20px",
-                              borderRadius: "6px",
-                              border: "none",
-                              fontWeight: 600,
-                              fontSize: "14px",
-                              width: "100%",
-                              cursor: "pointer",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              gap: "8px",
-                            }}
-                          >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M20.38 3.46L16 2a4 4 0 01-8 0L3.62 3.46a2 2 0 00-1.34 2.23l.58 3.47a1 1 0 00.99.84H6v10a2 2 0 002 2h8a2 2 0 002-2V10h2.15a1 1 0 00.99-.84l.58-3.47a2 2 0 00-1.34-2.23z"/>
-                            </svg>
-                            <span>{buttonText}</span>
-                          </button>
+                        <div style={{ margin: "4px 0" }}>
+                          {renderWidgetContent()}
                         </div>
                       )}
 
-                      {/* Modal Prediction Result Card Preview */}
-                      <div style={{
-                        marginTop: "12px",
-                        background: "#f9fafb",
-                        border: "1px solid #e5e7eb",
-                        borderRadius: "8px",
-                        padding: "16px",
-                        textAlign: "center",
-                      }}>
-                        {previewTab === "boundary" ? (
-                          <BlockStack gap="200">
-                            <Text variant="bodyMd" fontWeight="bold" as="p">
-                              You sit right between two sizes!
-                            </Text>
-                            <Text variant="bodyXs" tone="subdued" as="p">
-                              Choose your preferred fit style:
-                            </Text>
-                            <div style={{ display: "flex", gap: "8px" }}>
-                              <div style={{
-                                flex: 1,
-                                border: "2px solid #2563eb",
-                                borderRadius: "6px",
-                                padding: "10px",
-                                background: "#eff6ff",
-                              }}>
-                                <Text variant="headingMd" as="h4">M</Text>
-                                <Text variant="bodyXs" tone="subdued" as="p">Snug Fit</Text>
-                              </div>
-                              <div style={{
-                                flex: 1,
-                                border: "1px solid #e5e7eb",
-                                borderRadius: "6px",
-                                padding: "10px",
-                                background: "#ffffff",
-                              }}>
-                                <Text variant="headingMd" as="h4">L</Text>
-                                <Text variant="bodyXs" tone="subdued" as="p">Relaxed Fit</Text>
-                              </div>
-                            </div>
-                            {showConfidence && (
-                              <Badge tone="success">● High Confidence (88%)</Badge>
-                            )}
-                          </BlockStack>
-                        ) : (
-                          <BlockStack gap="100">
-                            <Text variant="bodySm" tone="subdued" as="p">
-                              Recommended Size for You
-                            </Text>
-                            <div style={{
-                              fontSize: "28px",
-                              fontWeight: 800,
-                              color: "#111827",
-                              background: "#ffffff",
-                              display: "inline-block",
-                              padding: "6px 20px",
-                              borderRadius: "6px",
-                              border: "1px solid #e5e7eb",
-                              margin: "6px auto",
-                            }}>
-                              M
-                            </div>
-                            {showReasoning && (
-                              <Text variant="bodyXs" tone="subdued" as="p">
-                                Fits well based on chest measurement alignment
-                              </Text>
-                            )}
-                            {showConfidence && (
-                              <Badge tone="success">● High Confidence Match</Badge>
-                            )}
-                          </BlockStack>
-                        )}
-                      </div>
+                      {/* Floating Modal Overlay inside Sandbox Preview */}
+                      {isModalOpen && render3TurnShopperModal()}
                     </BlockStack>
                   </div>
+
+                  <Divider />
+
+                  {/* Widget Deployment Status Integrated Section */}
+                  <BlockStack gap="300">
+                    <InlineStack align="space-between" blockAlign="center">
+                      <InlineStack gap="200" blockAlign="center">
+                        <Text as="h3" variant="headingSm">Widget Deployment Status</Text>
+                        <Badge tone={isWidgetActiveLocal ? "success" : "attention"}>
+                          {isWidgetActiveLocal ? "Active on Storefront" : "Inactive"}
+                        </Badge>
+                      </InlineStack>
+                    </InlineStack>
+
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      {isWidgetActiveLocal
+                        ? "The Snug recommendation widget is live and visible on your storefront product detail pages."
+                        : "The Snug widget is currently turned off. Activate it to display size recommendations to shoppers."}
+                    </Text>
+
+                    {brandSlug || connectedBrands.length > 0 ? (
+                      <Form method="post" onSubmit={handleToggleActivationMock}>
+                        <input type="hidden" name="intent" value={isWidgetActiveLocal ? "deactivate" : "activate"} />
+                        <Button
+                          variant={isWidgetActiveLocal ? "secondary" : "primary"}
+                          tone={isWidgetActiveLocal ? "critical" : undefined}
+                          submit
+                          loading={isSubmitting}
+                          onClick={() => handleToggleActivationMock()}
+                        >
+                          {isWidgetActiveLocal ? "Deactivate Widget" : "Activate Widget"}
+                        </Button>
+                      </Form>
+                    ) : (
+                      <Button url="/app/brand" variant="plain">
+                        Brand Setup →
+                      </Button>
+                    )}
+                  </BlockStack>
                 </BlockStack>
               </Card>
-            </Grid.Cell>
-          </Grid>
+            </div>
+          </div>
         </Layout.Section>
       </Layout>
     </Page>
   );
+
+  // Render Widget Indicator / Button (State A) OR Size Recommendation Card (State B)
+  function renderWidgetContent() {
+    // STATE B: Shopper reference added -> Show size recommendation card
+    if (shopperRef) {
+      return (
+        <div
+          style={{
+            border: "1.5px solid #059669",
+            background: "#e4f5ea",
+            borderRadius: "12px",
+            padding: "14px 16px",
+            transition: "all 0.2s ease",
+          }}
+        >
+          <BlockStack gap="150">
+            <InlineStack align="space-between" blockAlign="center">
+              <InlineStack gap="200" blockAlign="center">
+                <div
+                  style={{
+                    width: "28px",
+                    height: "28px",
+                    borderRadius: "6px",
+                    background: "#008060",
+                    color: "#ffffff",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: "bold",
+                    fontSize: "13px",
+                  }}
+                >
+                  📏
+                </div>
+                <InlineStack gap="150" blockAlign="center">
+                  <Text as="span" variant="bodyMd" fontWeight="bold">
+                    {`Your Recommended Size: ${shopperRef.size}`}
+                  </Text>
+                  {showConfidence && <Badge tone="success">98% Fit Match</Badge>}
+                </InlineStack>
+              </InlineStack>
+
+              <Button
+                variant="plain"
+                size="micro"
+                onClick={() => {
+                  setModalStep(1);
+                  setIsModalOpen(true);
+                }}
+              >
+                Change Reference
+              </Button>
+            </InlineStack>
+
+            {showReasoning && (
+              <Text as="p" variant="bodyXs" tone="subdued">
+                Based on your <strong>{shopperRef.brand}</strong> {shopperRef.garment} (Size {shopperRef.size},{" "}
+                {shopperRef.fitPreference === "perfect" ? "Fits Perfect" : shopperRef.fitPreference === "slim" ? "Runs Slim" : "Runs Oversized"}).
+              </Text>
+            )}
+          </BlockStack>
+        </div>
+      );
+    }
+
+    const bgCol = buttonColor.startsWith("#") ? buttonColor : `#${buttonColor}`;
+    const isLightBg = bgCol.toLowerCase() === "#ffffff" || bgCol.toLowerCase() === "#fff" || bgCol.toLowerCase() === "#f9fafb";
+    const textCol = isLightBg ? "#111827" : (buttonTextColor.startsWith("#") ? buttonTextColor : `#${buttonTextColor}`);
+
+    // STATE A: Shopper hasn't added reference -> Show "Find Your Recommended Size" button
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setModalStep(1);
+          setIsModalOpen(true);
+        }}
+        style={{
+          backgroundColor: isLightBg ? "#f3f4f6" : bgCol,
+          color: textCol,
+          padding: "12px 20px",
+          borderRadius: "8px",
+          border: isLightBg ? "1px solid #d1d5db" : "none",
+          fontWeight: 600,
+          fontSize: "14px",
+          width: "100%",
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "8px",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+          transition: "all 0.15s ease",
+        }}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M20.38 3.46L16 2a4 4 0 01-8 0L3.62 3.46a2 2 0 00-1.34 2.23l.58 3.47a1 1 0 00.99.84H6v10a2 2 0 002 2h8a2 2 0 002-2V10h2.15a1 1 0 00.99-.84l.58-3.47a2 2 0 00-1.34-2.23z" />
+        </svg>
+        <span>{buttonText}</span>
+      </button>
+    );
+  }
+
+  // Render 3-Turn Interactive Shopper Modal Overlay
+  function render3TurnShopperModal() {
+    const isBottomLeft = modalPosition === "bottom_left";
+
+    return (
+      <div
+        style={{
+          position: "absolute",
+          top: isBottomLeft ? "auto" : "50%",
+          bottom: isBottomLeft ? "16px" : "auto",
+          left: isBottomLeft ? "16px" : "50%",
+          transform: isBottomLeft ? "none" : "translate(-50%, -50%)",
+          width: "90%",
+          maxWidth: "420px",
+          background: "#ffffff",
+          borderRadius: "16px",
+          boxShadow: "0 20px 40px rgba(0,0,0,0.22), 0 0 0 1px rgba(0,0,0,0.06)",
+          zIndex: 100,
+          padding: "20px",
+          transition: "all 0.2s ease",
+        }}
+      >
+        <BlockStack gap="300">
+          {/* Modal Header */}
+          <InlineStack align="space-between" blockAlign="center">
+            <InlineStack gap="150" blockAlign="center">
+              <div
+                style={{
+                  width: "24px",
+                  height: "24px",
+                  borderRadius: "6px",
+                  background: "#008060",
+                  color: "#ffffff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                }}
+              >
+                ✨
+              </div>
+              <Text as="h3" variant="headingSm">Find Your Recommended Size</Text>
+            </InlineStack>
+
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(false)}
+              style={{
+                border: "none",
+                background: "transparent",
+                fontSize: "18px",
+                cursor: "pointer",
+                color: "#6b7280",
+              }}
+            >
+              ✕
+            </button>
+          </InlineStack>
+
+          {/* Turn Progress Pills */}
+          <InlineStack gap="100" blockAlign="center">
+            {[1, 2, 3].map((stepNum) => (
+              <div
+                key={stepNum}
+                style={{
+                  flex: 1,
+                  height: "4px",
+                  borderRadius: "2px",
+                  background: modalStep >= stepNum ? "#008060" : "#e5e7eb",
+                  transition: "all 0.2s ease",
+                }}
+              />
+            ))}
+          </InlineStack>
+
+          {/* TURN 1: Select Reference Brand */}
+          {modalStep === 1 && (
+            <BlockStack gap="200">
+              <BlockStack gap="050">
+                <Text as="h4" variant="bodyMd" fontWeight="bold">Turn 1 of 3: Select a Brand You Own</Text>
+                <Text as="p" variant="bodyXs" tone="subdued">
+                  Choose a brand from the merchant's verified baseline list:
+                </Text>
+              </BlockStack>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(2, 1fr)",
+                  gap: "8px",
+                  maxHeight: "200px",
+                  overflowY: "auto",
+                }}
+              >
+                {connectedBrands.map((b) => {
+                  const isSel = selectedRefBrand === b.name;
+                  return (
+                    <div
+                      key={b.slug}
+                      onClick={() => setSelectedRefBrand(b.name)}
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: "8px",
+                        border: isSel ? "1.5px solid #059669" : "1px solid #e1e3e5",
+                        background: isSel ? "#e4f5ea" : "#ffffff",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: "22px",
+                          height: "22px",
+                          borderRadius: "6px",
+                          background: b.color || "#111827",
+                          color: "#ffffff",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: "11px",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        {b.name.charAt(0)}
+                      </div>
+                      <Text as="span" variant="bodySm" fontWeight={isSel ? "bold" : "regular"}>
+                        {b.name}
+                      </Text>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <InlineStack align="end">
+                <Button variant="primary" size="medium" onClick={() => setModalStep(2)}>
+                  Next: Garment Type →
+                </Button>
+              </InlineStack>
+            </BlockStack>
+          )}
+
+          {/* TURN 2: Select Garment Category */}
+          {modalStep === 2 && (
+            <BlockStack gap="200">
+              <BlockStack gap="050">
+                <Text as="h4" variant="bodyMd" fontWeight="bold">Turn 2 of 3: Select Garment Type</Text>
+                <Text as="p" variant="bodyXs" tone="subdued">
+                  Which item from {selectedRefBrand} do you wear?
+                </Text>
+              </BlockStack>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "8px" }}>
+                {[
+                  { id: "T-Shirt", icon: "👕" },
+                  { id: "Shirt", icon: "👔" },
+                  { id: "Polo", icon: "👕" },
+                  { id: "Hoodie", icon: "🧥" },
+                  { id: "Jacket", icon: "🧥" },
+                  { id: "Trousers", icon: "👖" },
+                ].map((item) => {
+                  const isSel = selectedGarment === item.id;
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => setSelectedGarment(item.id)}
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: "8px",
+                        border: isSel ? "1.5px solid #059669" : "1px solid #e1e3e5",
+                        background: isSel ? "#e4f5ea" : "#ffffff",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                      }}
+                    >
+                      <span style={{ fontSize: "14px" }}>{item.icon}</span>
+                      <Text as="span" variant="bodySm" fontWeight={isSel ? "bold" : "regular"}>
+                        {item.id}
+                      </Text>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <InlineStack align="space-between">
+                <Button size="medium" variant="tertiary" onClick={() => setModalStep(1)}>
+                  ← Back
+                </Button>
+                <Button variant="primary" size="medium" onClick={() => setModalStep(3)}>
+                  Next: Size & Fit →
+                </Button>
+              </InlineStack>
+            </BlockStack>
+          )}
+
+          {/* TURN 3: Select Size & Fit Preference */}
+          {modalStep === 3 && (
+            <BlockStack gap="200">
+              <BlockStack gap="050">
+                <Text as="h4" variant="bodyMd" fontWeight="bold">Turn 3 of 3: Size & Fit Preference</Text>
+                <Text as="p" variant="bodyXs" tone="subdued">
+                  Select your size in {selectedRefBrand} {selectedGarment}:
+                </Text>
+              </BlockStack>
+
+              {/* Size Selector */}
+              <InlineStack gap="150" align="center">
+                {["XS", "S", "M", "L", "XL", "XXL"].map((sz) => {
+                  const isSel = selectedRefSize === sz;
+                  return (
+                    <div
+                      key={sz}
+                      onClick={() => setSelectedRefSize(sz)}
+                      style={{
+                        padding: "8px 14px",
+                        borderRadius: "6px",
+                        border: isSel ? "1.5px solid #059669" : "1px solid #d1d5db",
+                        background: isSel ? "#e4f5ea" : "#ffffff",
+                        fontWeight: isSel ? "bold" : "normal",
+                        fontSize: "13px",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {sz}
+                    </div>
+                  );
+                })}
+              </InlineStack>
+
+              {/* Fit Preference Dropdown */}
+              <Select
+                label="How does this garment fit you?"
+                options={[
+                  { label: "🎯 Fits Perfect / Just Right", value: "perfect" },
+                  { label: "🤏 Runs a Bit Tight / Slim", value: "slim" },
+                  { label: "👕 Runs a Bit Loose / Oversized", value: "loose" },
+                ]}
+                value={selectedFitPref}
+                onChange={setSelectedFitPref}
+              />
+
+              <InlineStack align="space-between">
+                <Button size="medium" variant="tertiary" onClick={() => setModalStep(2)}>
+                  ← Back
+                </Button>
+                <Button variant="primary" size="medium" onClick={handleCalculateSize}>
+                  Calculate My Recommended Size ✨
+                </Button>
+              </InlineStack>
+            </BlockStack>
+          )}
+        </BlockStack>
+      </div>
+    );
+  }
 }
