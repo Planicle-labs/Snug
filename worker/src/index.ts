@@ -6,6 +6,7 @@ import { authMiddleware } from './middleware/auth'
 import { handleSizePrediction } from './handlers/size'
 import { handleAdminUsageSync } from './handlers/adminUsage'
 import { handleProductMappingLookup } from './handlers/product'
+import { handleSizeGuideLookup } from './handlers/sizeGuide'
 
 export type AppEnv = {
   Bindings: Env;
@@ -33,6 +34,9 @@ app.post('/v1/size', authMiddleware, handleSizePrediction)
 
 // Storefront Product Mapping Lookup (Requires Auth)
 app.get('/v1/product/:product_id', authMiddleware, handleProductMappingLookup)
+
+// Storefront Size Guide (Requires Auth)
+app.get('/v1/product/:product_id/size-guide', authMiddleware, handleSizeGuideLookup)
 
 // Internal Admin Usage Sync Endpoint (Protected by X-Internal-Secret)
 app.get('/v1/admin/usage', handleAdminUsageSync)

@@ -36,6 +36,12 @@ if (host === "localhost") {
 }
 
 export default defineConfig({
+  // Shopify App Bridge, Polaris, and React Router must all resolve to the same
+  // React runtime. Without this, Vite can optimize a second copy and hooks lose
+  // their router context at runtime.
+  resolve: {
+    dedupe: ["react", "react-dom", "react-router"],
+  },
   server: {
     allowedHosts: [host],
     cors: {

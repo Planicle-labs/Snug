@@ -1,5 +1,5 @@
 import db from "../db.server";
-import { fitSizeCharts } from "@snug/db";
+import { fitSizeCharts, garmentMappings } from "@snug/db";
 import { eq, and } from "drizzle-orm";
 
 const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -107,9 +107,29 @@ export async function pushChartToKV(orgId: string, garmentType: string) {
     shoulder_max_cm: c.shoulderMaxCm === null ? null : Number(c.shoulderMaxCm),
     ease_value_cm: Number(c.easeValueCm),
     ease_source: c.easeSource,
+    guide_gender: c.extraMeasurements?.guideGender ?? "unisex",
+    show_size_guide: Boolean(c.extraMeasurements?.showOnStorefront),
   }));
 
   return kvPut(key, kvData);
+}
+
+/** Publish the product-to-garment lookup used by the storefront Worker. */
+export async function pushMappingsToKV(orgId: string) {
+  const dbClient = db as any;
+  const mappings = await dbClient
+    .select()
+    .from(garmentMappings as any)
+    .where(eq((garmentMappings as any).orgId, orgId));
+
+  const key = `merchant:${orgId}:mappings`;
+  if (!mappings.length) return kvDelete(key);
+
+  const payload = Object.fromEntries(mappings.map((mapping: any) => [
+    mapping.shopifyProductId,
+    { garment_type: mapping.garmentType, is_active: true },
+  ]));
+  return kvPut(key, payload);
 }
 
 export async function purgeMerchantFromKV(orgId: string, apiKey?: string | null, shop?: string | null) {

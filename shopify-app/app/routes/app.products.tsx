@@ -13,8 +13,9 @@ import {
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { organizations, fitSizeCharts, garmentMappings } from "@snug/db";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { pushMappingsToKV } from "../lib/kv.server";
 
 const GARMENT_TYPES = [
     { label: "T-Shirt", value: "tshirt" },
@@ -30,10 +31,10 @@ const GARMENT_TYPES = [
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     const { session } = await authenticate.admin(request);
     const shop = session.shop;
-    const dbClient = db;
-    const orgTable = organizations;
-    const fitSizeChartsTable = fitSizeCharts;
-    const garmentMappingsTable = garmentMappings;
+    const dbClient = db as any;
+    const orgTable = organizations as any;
+    const fitSizeChartsTable = fitSizeCharts as any;
+    const garmentMappingsTable = garmentMappings as any;
 
     const [org] = await dbClient
         .select()
@@ -69,9 +70,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export const action = async ({ request }: ActionFunctionArgs) => {
     const { session } = await authenticate.admin(request);
     const shop = session.shop;
-    const dbClient = db;
-    const orgTable = organizations;
-    const garmentMappingsTable = garmentMappings;
+    const dbClient = db as any;
+    const orgTable = organizations as any;
+    const garmentMappingsTable = garmentMappings as any;
 
     const formData = await request.formData();
     const intent = formData.get("intent");
@@ -97,14 +98,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         const [existing] = await dbClient
             .select()
             .from(garmentMappingsTable)
-            .where(eq(garmentMappingsTable.shopifyProductId, productId))
+            .where(and(
+                eq(garmentMappingsTable.orgId, org.id),
+                eq(garmentMappingsTable.shopifyProductId, productId),
+            ))
             .limit(1);
 
         if (existing) {
             await dbClient
                 .update(garmentMappingsTable)
                 .set({ garmentType, updatedAt: new Date() })
-                .where(eq(garmentMappingsTable.shopifyProductId, productId));
+                .where(eq(garmentMappingsTable.id, existing.id));
         } else {
             await dbClient.insert(garmentMappingsTable).values({
                 id: randomUUID(),
@@ -114,6 +118,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             });
         }
 
+        await pushMappingsToKV(org.id);
+
         return { success: true };
     }
 
@@ -121,7 +127,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         const mappingId = formData.get("mappingId") as string;
         
         if (mappingId) {
-            await dbClient.delete(garmentMappingsTable).where(eq(garmentMappingsTable.id, mappingId));
+            const [mapping] = await dbClient
+                .select()
+                .from(garmentMappingsTable)
+                .where(eq(garmentMappingsTable.id, mappingId))
+                .limit(1);
+            if (mapping) {
+                await dbClient.delete(garmentMappingsTable).where(eq(garmentMappingsTable.id, mappingId));
+                await pushMappingsToKV(mapping.orgId);
+            }
             return { deleted: true };
         }
     }
@@ -245,7 +259,7 @@ export default function Products() {
                                 </Text>
                             ) : (
                                 <BlockStack gap="200">
-                                    {mappings.map((row) => (
+                                    {mappings.map((row: any) => (
                                         <InlineStack key={row.id} align="space-between">
                                             <Text as="span">{row.shopifyProductId}</Text>
                                             <InlineStack gap="200">
