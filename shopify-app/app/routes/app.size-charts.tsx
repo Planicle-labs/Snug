@@ -1,6 +1,6 @@
 import { useMemo, useState, type ChangeEvent } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { useActionData, useLoaderData, useNavigation, Form } from "react-router";
+import { useActionData, useLoaderData, useNavigation, Form, useSubmit } from "react-router";
 import {
   Badge,
   Banner,
@@ -11,6 +11,7 @@ import {
   Divider,
   InlineStack,
   Layout,
+  Modal,
   Page,
   Text,
   TextField,
@@ -52,6 +53,132 @@ const DEFAULT_EASE: Record<string, number> = {
 };
 
 type Gender = (typeof GENDERS)[number]["value"];
+
+const STANDARD_SIZE_ORDER = ["XXS", "XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"];
+
+function sortChartsBySize(charts: any[]) {
+  return [...charts].sort((a, b) => {
+    const labelA = String(a.sizeLabel || "").toUpperCase().trim();
+    const labelB = String(b.sizeLabel || "").toUpperCase().trim();
+    const indexA = STANDARD_SIZE_ORDER.indexOf(labelA);
+    const indexB = STANDARD_SIZE_ORDER.indexOf(labelB);
+    if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+    if (indexA !== -1) return -1;
+    if (indexB !== -1) return 1;
+    const chestA = Number(a.chestMinCm) || 0;
+    const chestB = Number(b.chestMinCm) || 0;
+    if (chestA !== chestB) return chestA - chestB;
+    return labelA.localeCompare(labelB);
+  });
+}
+
+function formatMeasurement(val: string | number | null | undefined): string {
+  if (val == null || val === "") return "—";
+  const num = Number(val);
+  if (!Number.isFinite(num)) return String(val);
+  return String(Math.round(num * 100) / 100);
+}
+
+function TshirtDiagram() {
+  return (
+    <svg
+      viewBox="0 0 340 400"
+      width="100%"
+      height="auto"
+      style={{ display: "block", margin: "0 auto" }}
+      aria-label="T-shirt measurement diagram"
+    >
+      <defs>
+        <filter id="ts-drop" x="-8%" y="-8%" width="116%" height="116%">
+          <feDropShadow dx="0" dy="3" stdDeviation="5" floodColor="#1e293b" floodOpacity="0.10" />
+        </filter>
+        <marker id="arrowB" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto">
+          <polygon points="0 0, 7 3.5, 0 7" fill="#2563eb" />
+        </marker>
+        <marker id="arrowE" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto-start-reverse">
+          <polygon points="0 0, 7 3.5, 0 7" fill="#2563eb" />
+        </marker>
+      </defs>
+
+      {/* ── T-shirt body ── */}
+      <g filter="url(#ts-drop)">
+        {/* Main body */}
+        <path
+          d="M 112 56
+             C 140 86, 200 86, 228 56
+             L 308 102
+             L 274 162
+             L 234 144
+             L 230 336
+             Q 170 346 110 336
+             L 106 144
+             L 66 162
+             L 32 102 Z"
+          fill="#f8fafc"
+          stroke="#1e293b"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {/* Collar curve */}
+        <path
+          d="M 112 56 C 140 84, 200 84, 228 56"
+          fill="none"
+          stroke="#1e293b"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+        {/* Neckline inner */}
+        <path
+          d="M 122 58 C 140 78, 200 78, 218 58"
+          fill="#e2e8f0"
+          stroke="#94a3b8"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+        {/* Sleeve seam left */}
+        <line x1="106" y1="144" x2="66" y2="162" stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="4 3" />
+        {/* Sleeve seam right */}
+        <line x1="234" y1="144" x2="274" y2="162" stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="4 3" />
+        {/* Side fold hints */}
+        <path d="M 108 180 Q 100 250, 108 320" fill="none" stroke="#e2e8f0" strokeWidth="1.5" />
+        <path d="M 232 180 Q 240 250, 232 320" fill="none" stroke="#e2e8f0" strokeWidth="1.5" />
+        {/* Subtle chest crease */}
+        <path d="M 140 170 Q 170 180, 200 170" fill="none" stroke="#e2e8f0" strokeWidth="1" />
+      </g>
+
+      {/* ── Chest dimension ── */}
+      <g>
+        {/* Horizontal line */}
+        <line
+          x1="106" y1="192" x2="234" y2="192"
+          stroke="#2563eb" strokeWidth="1.8"
+          markerStart="url(#arrowE)" markerEnd="url(#arrowB)"
+        />
+        {/* Label pill */}
+        <rect x="145" y="183" width="50" height="19" rx="6" fill="#2563eb" />
+        <text x="170" y="196" textAnchor="middle" fill="#fff" fontSize="10" fontWeight="700" fontFamily="system-ui,sans-serif">Chest</text>
+      </g>
+
+      {/* ── Length dimension ── */}
+      <g>
+        {/* Vertical line */}
+        <line
+          x1="72" y1="56" x2="72" y2="336"
+          stroke="#2563eb" strokeWidth="1.8"
+          markerStart="url(#arrowE)" markerEnd="url(#arrowB)"
+        />
+        {/* Tick at top */}
+        <line x1="65" y1="56" x2="108" y2="56" stroke="#2563eb" strokeWidth="1.2" strokeDasharray="3 3" />
+        {/* Tick at bottom */}
+        <line x1="65" y1="336" x2="110" y2="336" stroke="#2563eb" strokeWidth="1.2" strokeDasharray="3 3" />
+        {/* Label pill */}
+        <rect x="46" y="183" width="52" height="19" rx="6" fill="#2563eb" />
+        <text x="72" y="196" textAnchor="middle" fill="#fff" fontSize="10" fontWeight="700" fontFamily="system-ui,sans-serif">Length</text>
+      </g>
+    </svg>
+  );
+}
 
 type DraftSize = {
   id: string;
@@ -317,6 +444,7 @@ export default function SizeCharts() {
   const { sizeCharts, hasOrg } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
+  const submit = useSubmit();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [gender, setGender] = useState<Gender | null>(null);
   const [garmentType, setGarmentType] = useState<string | null>(null);
@@ -336,14 +464,28 @@ export default function SizeCharts() {
       const key = `${chartGender}:${chart.garmentType}`;
       groups.set(key, [...(groups.get(key) ?? []), chart]);
     });
-    return [...groups.entries()].map(([key, charts]) => ({
-      key,
-      charts,
-      gender: guideGender(charts[0].extraMeasurements),
-      garmentType: charts[0].garmentType,
-      showOnStorefront: charts.some((chart: any) => Boolean(chart.extraMeasurements?.showOnStorefront)),
-    }));
+    return [...groups.entries()].map(([key, charts]) => {
+      const sortedCharts = sortChartsBySize(charts);
+      return {
+        key,
+        charts: sortedCharts,
+        gender: guideGender(sortedCharts[0].extraMeasurements),
+        garmentType: sortedCharts[0].garmentType,
+        showOnStorefront: charts.some((chart: any) => Boolean(chart.extraMeasurements?.showOnStorefront)),
+      };
+    });
   }, [sizeCharts]);
+
+  const [previewGuide, setPreviewGuide] = useState<(typeof savedGuides)[number] | null>(null);
+
+  function toggleStorefront(guide: (typeof savedGuides)[number]) {
+    const formData = new FormData();
+    formData.append("intent", "toggle-storefront-guide");
+    formData.append("gender", guide.gender);
+    formData.append("garmentType", guide.garmentType);
+    formData.append("showOnStorefront", String(!guide.showOnStorefront));
+    submit(formData, { method: "post" });
+  }
 
   function updateSize(id: string, field: keyof Omit<DraftSize, "id">, value: string) {
     setSizes((rows) => rows.map((row) => row.id === id ? { ...row, [field]: value } : row));
@@ -548,20 +690,173 @@ export default function SizeCharts() {
                 <div className={styles.emptyState}><Text as="h3" variant="headingSm">Your first guide starts here</Text><Text as="p" variant="bodyMd" tone="subdued">Add a complete Men’s T-shirt guide and your next onboarding step will unlock.</Text></div>
               ) : (
                 <BlockStack gap="300">
-                  {savedGuides.map((guide) => (
-                    <div className={styles.savedGuide} key={guide.key}>
-                      <InlineStack align="space-between" blockAlign="start"><BlockStack gap="100"><Text as="h3" variant="headingSm">{titleForGuide(guide.gender, guide.garmentType)}</Text><Text as="p" variant="bodySm" tone="subdued">{guide.charts.length} size{guide.charts.length === 1 ? "" : "s"} · Chest and length included</Text></BlockStack><Badge tone={guide.showOnStorefront ? "success" : undefined}>{guide.showOnStorefront ? "Shown on storefront" : "Saved"}</Badge></InlineStack>
-                      <div className={styles.savedSizes}>{guide.charts.map((chart: any) => <span key={chart.id}>{chart.sizeLabel}</span>)}</div>
-                      <Form method="post"><input type="hidden" name="intent" value="toggle-storefront-guide" /><input type="hidden" name="gender" value={guide.gender} /><input type="hidden" name="garmentType" value={guide.garmentType} /><input type="hidden" name="showOnStorefront" value={String(!guide.showOnStorefront)} /><Button variant={guide.showOnStorefront ? "secondary" : "primary"} submit>{guide.showOnStorefront ? "Hide size guide from storefront" : "Show size guide on storefront"}</Button></Form>
-                      <BlockStack gap="100">{guide.charts.map((chart: any) => <InlineStack key={chart.id} align="space-between"><Text as="span" variant="bodySm">{chart.sizeLabel} · Chest {chart.chestMinCm} cm · Length {chart.lengthMinCm} cm</Text><Form method="post"><input type="hidden" name="intent" value="delete" /><input type="hidden" name="chartId" value={chart.id} /><Button variant="plain" tone="critical" submit>Remove</Button></Form></InlineStack>)}</BlockStack>
-                    </div>
-                  ))}
+                  {savedGuides.map((guide) => {
+                    const hasShoulder = guide.charts.some((c: any) => c.shoulderMinCm != null && c.shoulderMinCm !== "");
+                    const gridCols = hasShoulder ? "60px 1fr 1fr 1fr auto" : "60px 1fr 1fr auto";
+                    return (
+                      <div className={styles.savedGuide} key={guide.key}>
+                        <BlockStack gap="400">
+                          <InlineStack align="space-between" blockAlign="center">
+                            <BlockStack gap="050">
+                              <InlineStack gap="200" blockAlign="center">
+                                <Text as="h3" variant="headingSm">{titleForGuide(guide.gender, guide.garmentType)}</Text>
+                                <Badge tone={guide.showOnStorefront ? "success" : undefined}>
+                                  {guide.showOnStorefront ? "Shown on storefront" : "Saved"}
+                                </Badge>
+                              </InlineStack>
+                              <Text as="p" variant="bodySm" tone="subdued">
+                                {guide.charts.length} size{guide.charts.length === 1 ? "" : "s"} · Chest and length included
+                              </Text>
+                            </BlockStack>
+                            {guide.garmentType === "tshirt" ? (
+                              <InlineStack gap="200">
+                                <Button variant="tertiary" onClick={() => setPreviewGuide(guide)}>
+                                  Preview storefront
+                                </Button>
+                                <Button
+                                  variant={guide.showOnStorefront ? "secondary" : "primary"}
+                                  onClick={() => {
+                                    if (!guide.showOnStorefront) {
+                                      setPreviewGuide(guide);
+                                    } else {
+                                      toggleStorefront(guide);
+                                    }
+                                  }}
+                                >
+                                  {guide.showOnStorefront ? "Hide from storefront" : "Show on storefront"}
+                                </Button>
+                              </InlineStack>
+                            ) : (
+                              <Form method="post">
+                                <input type="hidden" name="intent" value="toggle-storefront-guide" />
+                                <input type="hidden" name="gender" value={guide.gender} />
+                                <input type="hidden" name="garmentType" value={guide.garmentType} />
+                                <input type="hidden" name="showOnStorefront" value={String(!guide.showOnStorefront)} />
+                                <Button variant={guide.showOnStorefront ? "secondary" : "primary"} submit>
+                                  {guide.showOnStorefront ? "Hide from storefront" : "Show on storefront"}
+                                </Button>
+                              </Form>
+                            )}
+                          </InlineStack>
+
+                          <div className={styles.savedSizes}>
+                            {guide.charts.map((chart: any) => (
+                              <span key={chart.id}>{chart.sizeLabel}</span>
+                            ))}
+                          </div>
+
+                          <div className={styles.savedTable}>
+                            <div className={`${styles.savedTableRow} ${styles.savedTableHeader}`} style={{ gridTemplateColumns: gridCols }}>
+                              <span>Size</span>
+                              <span>Chest (cm)</span>
+                              <span>Length (cm)</span>
+                              {hasShoulder && <span>Shoulder (cm)</span>}
+                              <span />
+                            </div>
+                            {guide.charts.map((chart: any) => (
+                              <div className={styles.savedTableRow} key={chart.id} style={{ gridTemplateColumns: gridCols }}>
+                                <strong>{chart.sizeLabel}</strong>
+                                <span>{formatMeasurement(chart.chestMinCm)}</span>
+                                <span>{formatMeasurement(chart.lengthMinCm)}</span>
+                                {hasShoulder && <span>{formatMeasurement(chart.shoulderMinCm)}</span>}
+                                <Form method="post" style={{ justifySelf: "end" }}>
+                                  <input type="hidden" name="intent" value="delete" />
+                                  <input type="hidden" name="chartId" value={chart.id} />
+                                  <Button variant="plain" tone="critical" submit>
+                                    Remove
+                                  </Button>
+                                </Form>
+                              </div>
+                            ))}
+                          </div>
+                        </BlockStack>
+                      </div>
+                    );
+                  })}
                 </BlockStack>
               )}
             </BlockStack>
           </Card>
         </Layout.Section>
       </Layout>
+
+      {previewGuide && (
+        <Modal
+          open={Boolean(previewGuide)}
+          onClose={() => setPreviewGuide(null)}
+          title={previewGuide.showOnStorefront ? "Size guide preview" : "Review before publishing"}
+          large
+          primaryAction={{
+            content: previewGuide.showOnStorefront ? "Done" : "Publish to storefront",
+            onAction: () => {
+              if (!previewGuide.showOnStorefront) {
+                toggleStorefront(previewGuide);
+              }
+              setPreviewGuide(null);
+            },
+          }}
+          secondaryActions={[
+            {
+              content: "Cancel",
+              onAction: () => setPreviewGuide(null),
+            },
+          ]}
+        >
+          <Modal.Section flush>
+            <div className={styles.previewBanner}>
+              <div className={styles.previewBannerDiagram}>
+                <TshirtDiagram />
+              </div>
+              <div className={styles.previewBannerText}>
+                <div className={styles.previewBannerEyebrow}>Size Guide Preview</div>
+                <div className={styles.previewBannerTitle}>{titleForGuide(previewGuide.gender, previewGuide.garmentType)}</div>
+                <div className={styles.previewBannerSub}>{previewGuide.charts.length} sizes · Chest &amp; length included</div>
+              </div>
+            </div>
+          </Modal.Section>
+          <Modal.Section>
+            <BlockStack gap="400">
+              <div className={styles.previewTableWrap}>
+                <table className={styles.previewMatrixTable}>
+                  <thead>
+                    <tr>
+                      <th className={styles.previewThLabel}>In cm</th>
+                      {previewGuide.charts.map((chart: any) => (
+                        <th key={chart.id}>{chart.sizeLabel}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className={styles.previewTdLabel}>Chest</td>
+                      {previewGuide.charts.map((chart: any) => (
+                        <td key={chart.id}>{formatMeasurement(chart.chestMinCm)}</td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className={styles.previewTdLabel}>Length</td>
+                      {previewGuide.charts.map((chart: any) => (
+                        <td key={chart.id}>{formatMeasurement(chart.lengthMinCm)}</td>
+                      ))}
+                    </tr>
+                    {previewGuide.charts.some((c: any) => c.shoulderMinCm != null && c.shoulderMinCm !== "") && (
+                      <tr>
+                        <td className={styles.previewTdLabel}>Shoulder</td>
+                        {previewGuide.charts.map((chart: any) => (
+                          <td key={chart.id}>{formatMeasurement(chart.shoulderMinCm)}</td>
+                        ))}
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <Text as="p" variant="bodySm" tone="subdued">
+                Sizes may vary ± 0.5 cm. Measurements are of the garment, not the body.
+              </Text>
+            </BlockStack>
+          </Modal.Section>
+        </Modal>
+      )}
     </Page>
   );
 }
