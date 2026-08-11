@@ -1,6 +1,7 @@
 {
   "name": "snug",
   "private": true,
+  "packageManager": "pnpm@11.8.0",
   "scripts": {
     "build": "react-router build",
     "dev": "shopify app dev",
@@ -22,7 +23,7 @@
     "node": ">=20.19 <22 || >=22.12"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^0.10.0",
+    "@neondatabase/serverless": "^1.1.0",
     "@react-router/dev": "^7.12.0",
     "@react-router/fs-routes": "^7.12.0",
     "@react-router/node": "^7.12.0",
@@ -32,12 +33,13 @@
     "@shopify/shopify-api": "^13.1.0",
     "@shopify/shopify-app-react-router": "^1.2.1",
     "@shopify/shopify-app-session-storage-drizzle": "^4.0.1",
-    "drizzle-orm": "^0.44.7",
     "@snug/db": "workspace:*",
+    "drizzle-orm": "^0.44.7",
     "isbot": "^5.1.31",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router": "^7.12.0",
+    "recharts": "^3.10.1",
     "vite-tsconfig-paths": "^5.1.4"
   },
   "devDependencies": {
@@ -61,9 +63,6 @@
     "typescript": "^5.9.3",
     "vite": "^6.3.6"
   },
-  "workspaces": [
-    "extensions/*"
-  ],
   "trustedDependencies": [
     "@shopify/plugin-cloudflare"
   ],
