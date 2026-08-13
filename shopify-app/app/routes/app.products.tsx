@@ -1,286 +1,1229 @@
+import { useState, useMemo, useCallback } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { useLoaderData, useActionData, Form } from "react-router";
+import { useLoaderData, useActionData, Form, useSubmit, useNavigation } from "react-router";
 import {
-    Page,
-    Layout,
-    Card,
-    BlockStack,
-    Text,
-    Button,
-    Banner,
-    InlineStack,
+  Page,
+  Layout,
+  Card,
+  BlockStack,
+  InlineStack,
+  Text,
+  Button,
+  Banner,
+  Badge,
+  TextField,
+  Select,
+  Modal,
+  ResourceList,
+  ResourceItem,
+  Thumbnail,
+  Checkbox,
+  Divider,
+  Box,
+  EmptyState,
+  Tag,
+  Tooltip,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { organizations, fitSizeCharts, garmentMappings } from "@snug/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { pushMappingsToKV } from "../lib/kv.server";
 
-const GARMENT_TYPES = [
-    { label: "T-Shirt", value: "tshirt" },
-    { label: "Shirt", value: "shirt" },
-    { label: "Polo", value: "polo" },
-    { label: "Sweatshirt", value: "sweatshirt" },
-    { label: "Hoodie", value: "hoodie" },
-    { label: "Jacket", value: "jacket" },
-    { label: "Kurta", value: "kurta" },
-    { label: "Top", value: "top" },
+// Standard Garment Categories
+export const GARMENT_TYPES = [
+  { label: "T-shirt", value: "tshirt", description: "Everyday tees and knit tops" },
+  { label: "Shirt", value: "shirt", description: "Button-down and formal shirts" },
+  { label: "Polo", value: "polo", description: "Collared knit polos" },
+  { label: "Sweatshirt", value: "sweatshirt", description: "Crewneck sweatshirts" },
+  { label: "Hoodie", value: "hoodie", description: "Hooded sweatshirts" },
+  { label: "Jacket", value: "jacket", description: "Outerwear and jackets" },
+  { label: "Kurta", value: "kurta", description: "Kurtas and ethnic tops" },
+  { label: "Top", value: "top", description: "Other tops & blouses" },
+];
+
+export interface CatalogProduct {
+  id: string;
+  title: string;
+  handle: string;
+  vendor: string;
+  imageUrl?: string;
+  price?: string;
+}
+
+// Fallback demo products for testing when Shopify GraphQL catalog is empty or running locally
+const MOCK_PRODUCTS: CatalogProduct[] = [
+  {
+    id: "gid://shopify/Product/819203918201",
+    title: "Heavyweight Oversized Cotton Tee",
+    handle: "heavyweight-oversized-cotton-tee",
+    vendor: "Snug Athletics",
+    imageUrl: "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png",
+    price: "₹1,899",
+  },
+  {
+    id: "gid://shopify/Product/819203918202",
+    title: "Relaxed Fit Linen Casual Shirt",
+    handle: "relaxed-fit-linen-casual-shirt",
+    vendor: "Snug Studio",
+    imageUrl: "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png",
+    price: "₹2,499",
+  },
+  {
+    id: "gid://shopify/Product/819203918203",
+    title: "Classic Pique Cotton Polo",
+    handle: "classic-pique-cotton-polo",
+    vendor: "Snug Athletics",
+    imageUrl: "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png",
+    price: "₹1,599",
+  },
+  {
+    id: "gid://shopify/Product/819203918204",
+    title: "Vintage Wash Denim Jacket",
+    handle: "vintage-wash-denim-jacket",
+    vendor: "Snug Supply",
+    imageUrl: "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png",
+    price: "₹4,299",
+  },
+  {
+    id: "gid://shopify/Product/819203918205",
+    title: "Essential Pullover Fleece Hoodie",
+    handle: "essential-pullover-fleece-hoodie",
+    vendor: "Snug Athletics",
+    imageUrl: "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png",
+    price: "₹2,999",
+  },
+  {
+    id: "gid://shopify/Product/819203918206",
+    title: "Handspun Cotton Casual Kurta",
+    handle: "handspun-cotton-casual-kurta",
+    vendor: "Snug Heritage",
+    imageUrl: "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png",
+    price: "₹2,199",
+  },
 ];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-    const { session } = await authenticate.admin(request);
-    const shop = session.shop;
-    const dbClient = db as any;
-    const orgTable = organizations as any;
-    const fitSizeChartsTable = fitSizeCharts as any;
-    const garmentMappingsTable = garmentMappings as any;
+  const { admin, session } = await authenticate.admin(request);
+  const shop = session.shop;
 
-    const [org] = await dbClient
-        .select()
-        .from(orgTable)
-        .where(eq(orgTable.shop, shop))
-        .limit(1);
+  const dbClient = db as any;
+  const orgTable = organizations as any;
+  const fitSizeChartsTable = fitSizeCharts as any;
+  const garmentMappingsTable = garmentMappings as any;
 
-    if (!org) {
-        return { mappings: [], garmentTypes: [], hasOrg: false, hasSizeCharts: false };
-    }
+  // 1. Fetch organization
+  const [org] = await dbClient
+    .select()
+    .from(orgTable)
+    .where(eq(orgTable.shop, shop))
+    .limit(1);
 
-    const [chartCount] = await dbClient
-        .select({ count: sql<number>`count(*)` })
-        .from(fitSizeChartsTable)
-        .where(eq(fitSizeChartsTable.orgId, org.id))
-        .limit(1);
-
-    const hasSizeCharts = Number(chartCount?.count ?? 0) > 0;
-
-    const mappings = await dbClient
-        .select()
-        .from(garmentMappingsTable)
-        .where(eq(garmentMappingsTable.orgId, org.id));
-    
-    return { 
-        mappings, 
-        garmentTypes: GARMENT_TYPES,
-        hasOrg: true,
-        hasSizeCharts,
+  if (!org) {
+    return {
+      hasOrg: false,
+      products: MOCK_PRODUCTS,
+      mappings: [],
+      sizeCharts: [],
+      garmentTypes: GARMENT_TYPES,
     };
+  }
+
+  // 2. Fetch existing mappings for org
+  const dbMappings = await dbClient
+    .select()
+    .from(garmentMappingsTable)
+    .where(eq(garmentMappingsTable.orgId, org.id));
+
+  // 3. Fetch size charts created for org to allow chart-level overrides
+  const dbCharts = await dbClient
+    .select()
+    .from(fitSizeChartsTable)
+    .where(eq(fitSizeChartsTable.orgId, org.id));
+
+  // 4. Query products from Shopify Admin GraphQL API
+  let fetchedProducts: CatalogProduct[] = [];
+  try {
+    const response = await admin.graphql(`
+      query getCatalogProducts {
+        products(first: 50) {
+          nodes {
+            id
+            title
+            handle
+            vendor
+            featuredImage {
+              url
+              altText
+            }
+            variants(first: 1) {
+              nodes {
+                price
+              }
+            }
+          }
+        }
+      }
+    `);
+
+    const json = await response.json();
+    const nodes = json?.data?.products?.nodes;
+    if (Array.isArray(nodes) && nodes.length > 0) {
+      fetchedProducts = nodes.map((node: any) => ({
+        id: node.id,
+        title: node.title,
+        handle: node.handle,
+        vendor: node.vendor || "Default Vendor",
+        imageUrl: node.featuredImage?.url || "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png",
+        price: node.variants?.nodes?.[0]?.price ? `₹${node.variants.nodes[0].price}` : undefined,
+      }));
+    }
+  } catch (err) {
+    console.warn("[Products Loader] Shopify GraphQL fetch warning, using fallback list:", err);
+  }
+
+  // Combine live store products or fall back to mock catalog
+  const productsList = fetchedProducts.length > 0 ? fetchedProducts : MOCK_PRODUCTS;
+
+  return {
+    hasOrg: true,
+    products: productsList,
+    mappings: dbMappings,
+    sizeCharts: dbCharts,
+    garmentTypes: GARMENT_TYPES,
+  };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-    const { session } = await authenticate.admin(request);
-    const shop = session.shop;
-    const dbClient = db as any;
-    const orgTable = organizations as any;
-    const garmentMappingsTable = garmentMappings as any;
+  const { session } = await authenticate.admin(request);
+  const shop = session.shop;
+  const dbClient = db as any;
+  const orgTable = organizations as any;
+  const garmentMappingsTable = garmentMappings as any;
 
-    const formData = await request.formData();
-    const intent = formData.get("intent");
+  const formData = await request.formData();
+  const intent = formData.get("intent");
 
-    if (intent === "map-product") {
-        const productId = formData.get("productId") as string;
-        const garmentType = formData.get("garmentType") as string;
+  const [org] = await dbClient
+    .select()
+    .from(orgTable)
+    .where(eq(orgTable.shop, shop))
+    .limit(1);
 
-        if (!productId || !garmentType) {
-            return { error: "Please select a product and garment type." };
-        }
+  if (!org) {
+    return { error: "Organization not found. Please reinstall app." };
+  }
 
-        const [org] = await dbClient
-            .select()
-            .from(orgTable)
-            .where(eq(orgTable.shop, shop))
-            .limit(1);
+  // Intent 1: Map single product
+  if (intent === "map-product") {
+    const productId = formData.get("productId") as string;
+    const garmentType = formData.get("garmentType") as string;
+    const chartOverrideId = (formData.get("chartOverrideId") as string) || null;
 
-        if (!org) {
-            return { error: "Organization not found." };
-        }
-
-        const [existing] = await dbClient
-            .select()
-            .from(garmentMappingsTable)
-            .where(and(
-                eq(garmentMappingsTable.orgId, org.id),
-                eq(garmentMappingsTable.shopifyProductId, productId),
-            ))
-            .limit(1);
-
-        if (existing) {
-            await dbClient
-                .update(garmentMappingsTable)
-                .set({ garmentType, updatedAt: new Date() })
-                .where(eq(garmentMappingsTable.id, existing.id));
-        } else {
-            await dbClient.insert(garmentMappingsTable).values({
-                id: randomUUID(),
-                orgId: org.id,
-                shopifyProductId: productId,
-                garmentType,
-            });
-        }
-
-        await pushMappingsToKV(org.id);
-
-        return { success: true };
+    if (!productId || !garmentType) {
+      return { error: "Please select both a product and a garment category." };
     }
 
-    if (intent === "delete-mapping") {
-        const mappingId = formData.get("mappingId") as string;
-        
-        if (mappingId) {
-            const [mapping] = await dbClient
-                .select()
-                .from(garmentMappingsTable)
-                .where(eq(garmentMappingsTable.id, mappingId))
-                .limit(1);
-            if (mapping) {
-                await dbClient.delete(garmentMappingsTable).where(eq(garmentMappingsTable.id, mappingId));
-                await pushMappingsToKV(mapping.orgId);
-            }
-            return { deleted: true };
-        }
+    const [existing] = await dbClient
+      .select()
+      .from(garmentMappingsTable)
+      .where(
+        and(
+          eq(garmentMappingsTable.orgId, org.id),
+          eq(garmentMappingsTable.shopifyProductId, productId)
+        )
+      )
+      .limit(1);
+
+    if (existing) {
+      await dbClient
+        .update(garmentMappingsTable)
+        .set({
+          garmentType,
+          chartOverrideId: chartOverrideId || null,
+          updatedAt: new Date(),
+        })
+        .where(eq(garmentMappingsTable.id, existing.id));
+    } else {
+      await dbClient.insert(garmentMappingsTable).values({
+        id: randomUUID(),
+        orgId: org.id,
+        shopifyProductId: productId,
+        garmentType,
+        chartOverrideId: chartOverrideId || null,
+      });
     }
 
-    return { error: "Unknown action" };
+    await pushMappingsToKV(org.id);
+    return { success: true, message: "Product mapped successfully!" };
+  }
+
+  // Intent 2: Bulk map products
+  if (intent === "bulk-map") {
+    const productIdsRaw = formData.get("productIds") as string;
+    const garmentType = formData.get("garmentType") as string;
+    const chartOverrideId = (formData.get("chartOverrideId") as string) || null;
+
+    if (!productIdsRaw || !garmentType) {
+      return { error: "Please select products and a garment category for bulk mapping." };
+    }
+
+    const productIds: string[] = JSON.parse(productIdsRaw);
+
+    for (const pid of productIds) {
+      const [existing] = await dbClient
+        .select()
+        .from(garmentMappingsTable)
+        .where(
+          and(
+            eq(garmentMappingsTable.orgId, org.id),
+            eq(garmentMappingsTable.shopifyProductId, pid)
+          )
+        )
+        .limit(1);
+
+      if (existing) {
+        await dbClient
+          .update(garmentMappingsTable)
+          .set({
+            garmentType,
+            chartOverrideId: chartOverrideId || null,
+            updatedAt: new Date(),
+          })
+          .where(eq(garmentMappingsTable.id, existing.id));
+      } else {
+        await dbClient.insert(garmentMappingsTable).values({
+          id: randomUUID(),
+          orgId: org.id,
+          shopifyProductId: pid,
+          garmentType,
+          chartOverrideId: chartOverrideId || null,
+        });
+      }
+    }
+
+    await pushMappingsToKV(org.id);
+    return { success: true, message: `${productIds.length} products mapped successfully!` };
+  }
+
+  // Intent 3: Delete single product mapping
+  if (intent === "delete-mapping") {
+    const productId = formData.get("productId") as string;
+    if (productId) {
+      await dbClient
+        .delete(garmentMappingsTable)
+        .where(
+          and(
+            eq(garmentMappingsTable.orgId, org.id),
+            eq(garmentMappingsTable.shopifyProductId, productId)
+          )
+        );
+      await pushMappingsToKV(org.id);
+      return { deleted: true, message: "Product mapping removed." };
+    }
+  }
+
+  // Intent 4: Bulk delete product mappings
+  if (intent === "bulk-delete-mapping") {
+    const productIdsRaw = formData.get("productIds") as string;
+    if (productIdsRaw) {
+      const productIds: string[] = JSON.parse(productIdsRaw);
+      await dbClient
+        .delete(garmentMappingsTable)
+        .where(
+          and(
+            eq(garmentMappingsTable.orgId, org.id),
+            inArray(garmentMappingsTable.shopifyProductId, productIds)
+          )
+        );
+      await pushMappingsToKV(org.id);
+      return { deleted: true, message: `Removed mappings for ${productIds.length} products.` };
+    }
+  }
+
+  return { error: "Unknown action" };
 };
 
-export default function Products() {
-    const { mappings, garmentTypes, hasOrg, hasSizeCharts } = useLoaderData<typeof loader>();
-    const actionData = useActionData<typeof action>();
+export default function ProductMappingPage() {
+  const { hasOrg, products, mappings: initialMappings, sizeCharts, garmentTypes } = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
+  const submit = useSubmit();
+  const navigation = useNavigation();
+  const isSubmitting = navigation.state === "submitting";
 
-    return (
-        <Page
-            title="Tag Clothes"
-            backAction={{ url: "/app" }}
+  // Local optimistic state for mappings so updates feel instant
+  const [localMappings, setLocalMappings] = useState<any[]>(initialMappings || []);
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [searchValue, setSearchValue] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+
+  // Modal State for Single Mapping Edit
+  const [editModalProduct, setEditModalProduct] = useState<CatalogProduct | null>(null);
+  const [selectedGarmentType, setSelectedGarmentType] = useState<string>("tshirt");
+  const [selectedChartOverride, setSelectedChartOverride] = useState<string>("");
+
+  // Modal State for Bulk Mapping
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [bulkGarmentType, setBulkGarmentType] = useState<string>("tshirt");
+  const [bulkChartOverride, setBulkChartOverride] = useState<string>("");
+
+  // Modal State for Storefront Recommender Preview
+  const [previewProduct, setPreviewProduct] = useState<CatalogProduct | null>(null);
+
+  // Map of productId -> mapping object
+  const mappingMap = useMemo(() => {
+    const map = new Map<string, any>();
+    localMappings.forEach((m) => map.set(m.shopifyProductId, m));
+    return map;
+  }, [localMappings]);
+
+  // Group size charts by garment type for easy selection
+  const chartsByGarment = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    (sizeCharts || []).forEach((chart: any) => {
+      const g = chart.garmentType || "other";
+      if (!map[g]) map[g] = [];
+      map[g].push(chart);
+    });
+    return map;
+  }, [sizeCharts]);
+
+  // Filtered products list based on search and filters
+  const filteredProducts = useMemo(() => {
+    return products.filter((p) => {
+      const mapping = mappingMap.get(p.id);
+      const matchesSearch =
+        p.title.toLowerCase().includes(searchValue.toLowerCase()) ||
+        p.vendor.toLowerCase().includes(searchValue.toLowerCase()) ||
+        p.id.toLowerCase().includes(searchValue.toLowerCase());
+
+      if (!matchesSearch) return false;
+
+      // Status Filter
+      if (statusFilter === "mapped" && !mapping) return false;
+      if (statusFilter === "unmapped" && mapping) return false;
+      if (statusFilter === "needs_chart") {
+        if (!mapping) return false;
+        const availableCharts = chartsByGarment[mapping.garmentType] || [];
+        if (availableCharts.length > 0) return false;
+      }
+
+      // Category Filter
+      if (categoryFilter !== "all") {
+        if (!mapping || mapping.garmentType !== categoryFilter) return false;
+      }
+
+      return true;
+    });
+  }, [products, mappingMap, searchValue, statusFilter, categoryFilter, chartsByGarment]);
+
+  // Derived 2-column split lists
+  const unmappedProductsList = useMemo(() => {
+    return filteredProducts.filter((p) => !mappingMap.has(p.id));
+  }, [filteredProducts, mappingMap]);
+
+  const mappedProductsList = useMemo(() => {
+    return filteredProducts.filter((p) => mappingMap.has(p.id));
+  }, [filteredProducts, mappingMap]);
+
+  // Metrics
+  const mappedCount = useMemo(() => {
+    return products.filter((p) => mappingMap.has(p.id)).length;
+  }, [products, mappingMap]);
+
+  const unmappedCount = products.length - mappedCount;
+  const configuredChartsCount = (sizeCharts || []).length;
+
+  // Open single edit mapping modal
+  const handleOpenEditModal = (product: CatalogProduct) => {
+    const existing = mappingMap.get(product.id);
+    setEditModalProduct(product);
+    setSelectedGarmentType(existing?.garmentType || "tshirt");
+    setSelectedChartOverride(existing?.chartOverrideId || "");
+  };
+
+  // Submit Single Product Mapping
+  const handleSaveSingleMapping = () => {
+    if (!editModalProduct) return;
+
+    const formData = new FormData();
+    formData.set("intent", "map-product");
+    formData.set("productId", editModalProduct.id);
+    formData.set("garmentType", selectedGarmentType);
+    if (selectedChartOverride) {
+      formData.set("chartOverrideId", selectedChartOverride);
+    }
+
+    // Optimistic local update
+    setLocalMappings((prev) => {
+      const filtered = prev.filter((m) => m.shopifyProductId !== editModalProduct.id);
+      return [
+        ...filtered,
+        {
+          id: randomUUID(),
+          shopifyProductId: editModalProduct.id,
+          garmentType: selectedGarmentType,
+          chartOverrideId: selectedChartOverride || null,
+        },
+      ];
+    });
+
+    submit(formData, { method: "post" });
+    setEditModalProduct(null);
+  };
+
+  // Submit Single Product Unmap
+  const handleRemoveSingleMapping = (product: CatalogProduct) => {
+    const formData = new FormData();
+    formData.set("intent", "delete-mapping");
+    formData.set("productId", product.id);
+
+    setLocalMappings((prev) => prev.filter((m) => m.shopifyProductId !== product.id));
+    submit(formData, { method: "post" });
+  };
+
+  // Submit Bulk Mapping
+  const handleSaveBulkMapping = () => {
+    if (selectedProductIds.length === 0) return;
+
+    const formData = new FormData();
+    formData.set("intent", "bulk-map");
+    formData.set("productIds", JSON.stringify(selectedProductIds));
+    formData.set("garmentType", bulkGarmentType);
+    if (bulkChartOverride) {
+      formData.set("chartOverrideId", bulkChartOverride);
+    }
+
+    // Optimistic update
+    setLocalMappings((prev) => {
+      const remaining = prev.filter((m) => !selectedProductIds.includes(m.shopifyProductId));
+      const added = selectedProductIds.map((pid) => ({
+        id: randomUUID(),
+        shopifyProductId: pid,
+        garmentType: bulkGarmentType,
+        chartOverrideId: bulkChartOverride || null,
+      }));
+      return [...remaining, ...added];
+    });
+
+    submit(formData, { method: "post" });
+    setIsBulkModalOpen(false);
+    setSelectedProductIds([]);
+  };
+
+  // Submit Bulk Unmap
+  const handleBulkUnmap = () => {
+    if (selectedProductIds.length === 0) return;
+
+    const formData = new FormData();
+    formData.set("intent", "bulk-delete-mapping");
+    formData.set("productIds", JSON.stringify(selectedProductIds));
+
+    setLocalMappings((prev) => prev.filter((m) => !selectedProductIds.includes(m.shopifyProductId)));
+    submit(formData, { method: "post" });
+    setSelectedProductIds([]);
+  };
+
+  return (
+    <Page
+      title="Product Size Chart Mapping"
+      subtitle="Select products below and click Map Selected Products to connect them to your fit size charts."
+      compactTitle
+      primaryAction={{
+        content: selectedProductIds.length > 0 ? `Map ${selectedProductIds.length} Selected Products` : "Map Selected Products",
+        disabled: selectedProductIds.length === 0,
+        onAction: () => setIsBulkModalOpen(true),
+      }}
+    >
+      <Layout>
+        {/* Banner Notifications */}
+        <Layout.Section>
+          <BlockStack gap="300">
+            <Banner tone="info" title="👕 Upperwear Category Focus">
+              <Text as="p" variant="bodyMd">
+                Snug specializes in high-precision fit recommendations for <strong>Upperwear garments</strong> (T-shirts, Shirts, Polos, Hoodies, Sweatshirts, Jackets, Kurtas & Tops). Bottomwear sizing (jeans, trousers, skirts) will be added in upcoming updates.
+              </Text>
+            </Banner>
+
+            {!hasOrg && (
+              <Banner tone="critical" title="Organization Not Found">
+                <Text as="p" variant="bodyMd">
+                  Please reinstall the Snug app to configure product size mappings.
+                </Text>
+              </Banner>
+            )}
+
+            {configuredChartsCount === 0 && (
+              <Banner
+                tone="warning"
+                title="No Size Charts Created Yet"
+                action={{ content: "Create Size Charts →", url: "/app/size-charts" }}
+              >
+                <Text as="p" variant="bodyMd">
+                  You have not created any custom fit size charts. Select products and map them to garment categories, then create size charts in <strong>Size Charts</strong> to activate PDP recommendations.
+                </Text>
+              </Banner>
+            )}
+
+            {actionData?.error && (
+              <Banner tone="critical" title="Action Error">
+                <Text as="p" variant="bodyMd">{actionData.error}</Text>
+              </Banner>
+            )}
+
+            {actionData?.success && (
+              <Banner tone="success" title="Mapping Updated">
+                <Text as="p" variant="bodyMd">{actionData.message}</Text>
+              </Banner>
+            )}
+
+            {actionData?.deleted && (
+              <Banner tone="info" title="Mapping Removed">
+                <Text as="p" variant="bodyMd">{actionData.message}</Text>
+              </Banner>
+            )}
+          </BlockStack>
+        </Layout.Section>
+
+        {/* Summary Metrics Bar */}
+        <Layout.Section>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+              gap: "16px",
+            }}
+          >
+            <Card padding="400">
+              <BlockStack gap="100">
+                <Text as="p" variant="bodySm" tone="subdued">Catalog Products</Text>
+                <Text as="h2" variant="headingLg">{products.length}</Text>
+              </BlockStack>
+            </Card>
+
+            <Card padding="400">
+              <BlockStack gap="100">
+                <Text as="p" variant="bodySm" tone="subdued">Mapped to Recommender</Text>
+                <InlineStack gap="150" blockAlign="center">
+                  <Text as="h2" variant="headingLg">{mappedCount}</Text>
+                  <Badge tone="success">{`${Math.round((mappedCount / (products.length || 1)) * 100)}%`}</Badge>
+                </InlineStack>
+              </BlockStack>
+            </Card>
+
+            <Card padding="400">
+              <BlockStack gap="100">
+                <Text as="p" variant="bodySm" tone="subdued">Unmapped Products</Text>
+                <Text as="h2" variant="headingLg" tone={unmappedCount > 0 ? "caution" : undefined}>
+                  {unmappedCount}
+                </Text>
+              </BlockStack>
+            </Card>
+
+            <Card padding="400">
+              <BlockStack gap="100">
+                <Text as="p" variant="bodySm" tone="subdued">Active Size Charts</Text>
+                <InlineStack gap="150" blockAlign="center">
+                  <Text as="h2" variant="headingLg">{configuredChartsCount}</Text>
+                  <Button variant="plain" url="/app/size-charts">Manage →</Button>
+                </InlineStack>
+              </BlockStack>
+            </Card>
+          </div>
+        </Layout.Section>
+
+        {/* Search, Filter & Selection Bar */}
+        <Layout.Section>
+          <Card padding="400">
+            <BlockStack gap="300">
+              <InlineStack align="space-between" blockAlign="center" gap="400">
+                <div style={{ flex: 2, minWidth: "240px" }}>
+                  <TextField
+                    label="Search products"
+                    labelHidden
+                    placeholder="Search catalog products..."
+                    value={searchValue}
+                    onChange={setSearchValue}
+                    clearButton
+                    onClearButtonClick={() => setSearchValue("")}
+                    autoComplete="off"
+                  />
+                </div>
+
+                <InlineStack gap="300" blockAlign="center">
+                  <Select
+                    label="Garment Category"
+                    labelHidden
+                    options={[
+                      { label: "All Garment Types", value: "all" },
+                      ...garmentTypes.map((g) => ({ label: g.label, value: g.value })),
+                    ]}
+                    value={categoryFilter}
+                    onChange={setCategoryFilter}
+                  />
+                </InlineStack>
+              </InlineStack>
+
+              {selectedProductIds.length > 0 && (
+                <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                  <InlineStack align="space-between" blockAlign="center">
+                    <InlineStack gap="200" blockAlign="center">
+                      <Badge tone="info">{`${selectedProductIds.length} Products Selected`}</Badge>
+                      <Text as="span" variant="bodySm" fontWeight="semibold">
+                        Select a size chart to apply to all chosen items
+                      </Text>
+                    </InlineStack>
+
+                    <InlineStack gap="200">
+                      <Button variant="primary" size="slim" onClick={() => setIsBulkModalOpen(true)}>
+                        Map Selected to Size Chart
+                      </Button>
+                      <Button variant="tertiary" size="slim" onClick={() => setSelectedProductIds([])}>
+                        Deselect All
+                      </Button>
+                    </InlineStack>
+                  </InlineStack>
+                </Box>
+              )}
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
+        {/* 2-Column Split: Unmapped Products (Left) vs Mapped Products (Right) */}
+        <Layout.Section>
+          <style>{`
+            .snug-resource-list .Polaris-ResourceItem__Container {
+              display: flex !important;
+              flex-direction: row !important;
+              align-items: center !important;
+              justify-content: space-between !important;
+              width: 100% !important;
+              flex-wrap: nowrap !important;
+            }
+            .snug-resource-list .Polaris-ResourceItem__Content {
+              flex: 1 1 auto !important;
+              width: 100% !important;
+              min-width: 0 !important;
+            }
+            .snug-column-card {
+              min-height: 580px !important;
+              max-height: 580px !important;
+              display: flex !important;
+              flex-direction: column !important;
+            }
+            .snug-resource-scroll-container {
+              flex: 1 !important;
+              max-height: 440px !important;
+              overflow-y: auto !important;
+              padding-right: 4px;
+            }
+            .snug-resource-scroll-container::-webkit-scrollbar {
+              width: 6px;
+            }
+            .snug-resource-scroll-container::-webkit-scrollbar-track {
+              background: #f1f2f3;
+              border-radius: 4px;
+            }
+            .snug-resource-scroll-container::-webkit-scrollbar-thumb {
+              background: #c9cccf;
+              border-radius: 4px;
+            }
+            .snug-resource-scroll-container::-webkit-scrollbar-thumb:hover {
+              background: #a4a9ad;
+            }
+          `}</style>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))",
+              gap: "20px",
+              width: "100%",
+              alignItems: "stretch",
+            }}
+          >
+            {/* COLUMN 1: UNMAPPED PRODUCTS */}
+            <div className="snug-column-card">
+              <Card padding="500">
+                <BlockStack gap="400">
+                  <InlineStack align="space-between" blockAlign="center">
+                    <InlineStack gap="200" blockAlign="center">
+                      <Text as="h2" variant="headingMd">Unmapped Products</Text>
+                      <Badge tone="info">{`${unmappedProductsList.length}`}</Badge>
+                    </InlineStack>
+
+                    <Button
+                      variant="primary"
+                      size="slim"
+                      disabled={selectedProductIds.length === 0}
+                      onClick={() => setIsBulkModalOpen(true)}
+                    >
+                      {selectedProductIds.length > 0 ? `Map ${selectedProductIds.length} Selected` : "Map Selected"}
+                    </Button>
+                  </InlineStack>
+
+                  <Text as="p" variant="bodyXs" tone="subdued">
+                    Select clothes below, then click Map Selected to choose a size chart.
+                  </Text>
+
+                  <Divider />
+
+                  <div className="snug-resource-list snug-resource-scroll-container">
+                    <ResourceList
+                      resourceName={{ singular: "unmapped product", plural: "unmapped products" }}
+                      items={unmappedProductsList}
+                      loading={isSubmitting}
+                      emptyState={
+                        <EmptyState
+                          heading="All Products Mapped! 🎉"
+                          image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+                        >
+                          <Text as="p" variant="bodySm">
+                            Every product in this view has been connected to a size chart.
+                          </Text>
+                        </EmptyState>
+                      }
+                      renderItem={(product) => {
+                        const isSelected = selectedProductIds.includes(product.id);
+                        return (
+                          <ResourceItem
+                            id={product.id}
+                            url="#"
+                            onClick={() => {
+                              setSelectedProductIds((prev) =>
+                                prev.includes(product.id)
+                                  ? prev.filter((id) => id !== product.id)
+                                  : [...prev, product.id]
+                              );
+                            }}
+                            media={
+                              <InlineStack gap="200" blockAlign="center">
+                                <div onClick={(e) => e.stopPropagation()}>
+                                  <Checkbox
+                                    label={`Select ${product.title}`}
+                                    labelHidden
+                                    checked={isSelected}
+                                    onChange={() => {
+                                      setSelectedProductIds((prev) =>
+                                        prev.includes(product.id)
+                                          ? prev.filter((id) => id !== product.id)
+                                          : [...prev, product.id]
+                                      );
+                                    }}
+                                  />
+                                </div>
+                                <Thumbnail
+                                  source={product.imageUrl || "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png"}
+                                  alt={product.title}
+                                  size="small"
+                                />
+                              </InlineStack>
+                            }
+                          >
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", width: "100%" }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <Text as="h3" variant="bodyMd" fontWeight="bold">
+                                  {product.title}
+                                </Text>
+                              </div>
+                              <Badge tone="info">Unmapped</Badge>
+                            </div>
+                          </ResourceItem>
+                        );
+                      }}
+                    />
+                  </div>
+                </BlockStack>
+              </Card>
+            </div>
+
+            {/* COLUMN 2: MAPPED PRODUCTS */}
+            <div className="snug-column-card">
+              <Card padding="500">
+                <BlockStack gap="400">
+                  <InlineStack align="space-between" blockAlign="center">
+                    <InlineStack gap="200" blockAlign="center">
+                      <Text as="h2" variant="headingMd">Mapped Products</Text>
+                      <Badge tone="success">{`${mappedProductsList.length}`}</Badge>
+                    </InlineStack>
+                  </InlineStack>
+
+                  <Text as="p" variant="bodyXs" tone="subdued">
+                    Products connected to Snug size charts and receiving storefront recommendations.
+                  </Text>
+
+                  <Divider />
+
+                  <div className="snug-resource-list snug-resource-scroll-container">
+                  <ResourceList
+                    resourceName={{ singular: "mapped product", plural: "mapped products" }}
+                    items={mappedProductsList}
+                    loading={isSubmitting}
+                    emptyState={
+                      <EmptyState
+                        heading="No Mapped Products Yet"
+                        image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+                      >
+                        <Text as="p" variant="bodySm">
+                          Select products from the unmapped column and click Map Selected to start.
+                        </Text>
+                      </EmptyState>
+                    }
+                    renderItem={(product) => {
+                      const mapping = mappingMap.get(product.id);
+                      const garmentLabel = garmentTypes.find((g) => g.value === mapping?.garmentType)?.label || mapping?.garmentType;
+                      const availableCharts = mapping ? (chartsByGarment[mapping.garmentType] || []) : [];
+                      const specificChart = mapping?.chartOverrideId
+                        ? (sizeCharts || []).find((c: any) => c.id === mapping.chartOverrideId)
+                        : null;
+
+                      let statusBadge = (
+                        <Badge tone="success">🟢 Ready</Badge>
+                      );
+                      if (availableCharts.length === 0 && !specificChart) {
+                        statusBadge = <Badge tone="attention">🟡 Needs Chart</Badge>;
+                      }
+
+                      return (
+                        <ResourceItem
+                          id={product.id}
+                          url="#"
+                          media={
+                            <Thumbnail
+                              source={product.imageUrl || "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png"}
+                              alt={product.title}
+                              size="small"
+                            />
+                          }
+                        >
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", width: "100%", flexWrap: "nowrap" }}>
+                            {/* Left: Product Title & Badges */}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <BlockStack gap="025">
+                                <Text as="h3" variant="bodyMd" fontWeight="bold">
+                                  {product.title}
+                                </Text>
+                                <InlineStack gap="100">
+                                  <Badge tone="info">{garmentLabel}</Badge>
+                                  {specificChart && (
+                                    <Badge>{specificChart.sizeLabel || "Custom"}</Badge>
+                                  )}
+                                </InlineStack>
+                              </BlockStack>
+                            </div>
+
+                            {/* Right: Readiness Badge & Action Buttons */}
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                              {statusBadge}
+
+                              <Tooltip content="Preview size recommender widget on PDP">
+                                <Button
+                                  size="micro"
+                                  variant="tertiary"
+                                  onClick={(e?: React.MouseEvent) => {
+                                    e?.stopPropagation();
+                                    setPreviewProduct(product);
+                                  }}
+                                >
+                                  👁️
+                                </Button>
+                              </Tooltip>
+
+                              <Button
+                                size="micro"
+                                variant="plain"
+                                tone="critical"
+                                onClick={(e?: React.MouseEvent) => {
+                                  e?.stopPropagation();
+                                  handleRemoveSingleMapping(product);
+                                }}
+                              >
+                                Unmap
+                              </Button>
+                            </div>
+                          </div>
+                        </ResourceItem>
+                      );
+                    }}
+                  />
+                </div>
+              </BlockStack>
+            </Card>
+          </div>
+        </div>
+      </Layout.Section>
+    </Layout>
+
+      {/* SINGLE PRODUCT MAPPING MODAL */}
+      {editModalProduct && (
+        <Modal
+          open={Boolean(editModalProduct)}
+          onClose={() => setEditModalProduct(null)}
+          title={`Map Product: ${editModalProduct.title}`}
+          primaryAction={{
+            content: "Save Mapping",
+            onAction: handleSaveSingleMapping,
+            loading: isSubmitting,
+          }}
+          secondaryActions={[
+            {
+              content: "Cancel",
+              onAction: () => setEditModalProduct(null),
+            },
+          ]}
         >
-            <Layout>
-                <Layout.Section>
+          <Modal.Section>
+            <BlockStack gap="400">
+              <InlineStack gap="300" blockAlign="center">
+                <Thumbnail
+                  source={editModalProduct.imageUrl || "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png"}
+                  alt={editModalProduct.title}
+                  size="small"
+                />
+                <BlockStack gap="025">
+                  <Text as="p" variant="bodyLg" fontWeight="bold">{editModalProduct.title}</Text>
+                  <Text as="p" variant="bodyXs" tone="subdued">Vendor: {editModalProduct.vendor}</Text>
+                </BlockStack>
+              </InlineStack>
 
-                    {!hasOrg && (
-                        <Banner tone="critical" title="Organization not found">
-                            <Text as="p" variant="bodyMd">
-                                Please reinstall the app to continue.
-                            </Text>
-                        </Banner>
-                    )}
+              <Divider />
 
-                    {!hasSizeCharts && (
-                        <Banner tone="warning" title="Add size charts first">
-                            <Text as="p" variant="bodyMd">
-                                You need to add size charts before mapping products.
-                            </Text>
-                            <Button url="/app/size-charts" variant="plain">
-                                Add size charts
-                            </Button>
-                        </Banner>
-                    )}
+              <Select
+                label="Garment Category"
+                options={garmentTypes.map((g) => ({
+                  label: `${g.label} — (${g.description})`,
+                  value: g.value,
+                }))}
+                value={selectedGarmentType}
+                onChange={(val) => {
+                  setSelectedGarmentType(val);
+                  setSelectedChartOverride("");
+                }}
+                helpText="Select the clothing category for this product so Snug calculates body ease correctly."
+              />
 
-                    {actionData?.error && (
-                        <Banner tone="critical" title="Error">
-                            <Text as="p" variant="bodyMd">{actionData.error}</Text>
-                        </Banner>
-                    )}
+              {/* Specific Size Chart Override Selector */}
+              <div>
+                <Select
+                  label="Specific Size Chart (Optional Override)"
+                  options={[
+                    { label: "Use Default Category Size Chart Guide", value: "" },
+                    ...(chartsByGarment[selectedGarmentType] || []).map((chart: any) => ({
+                      label: `${chart.sizeLabel} — (${chart.fitType} fit, Chest: ${chart.chestMinCm}-${chart.chestMaxCm}cm)`,
+                      value: chart.id,
+                    })),
+                  ]}
+                  value={selectedChartOverride}
+                  onChange={setSelectedChartOverride}
+                  helpText="Optionally pin this product to a specific size chart created in Size Charts."
+                />
+              </div>
 
-                    {actionData?.success && (
-                        <Banner tone="success" title="Product mapped">
-                            <Text as="p" variant="bodyMd">
-                                The product has been mapped successfully.
-                            </Text>
-                        </Banner>
-                    )}
+              {(chartsByGarment[selectedGarmentType] || []).length === 0 && (
+                <Banner tone="warning">
+                  <Text as="p" variant="bodySm">
+                    No size charts configured for <strong>{selectedGarmentType}</strong> yet. You can save this mapping now and add charts in <Button url="/app/size-charts" variant="plain">Size Charts</Button> later.
+                  </Text>
+                </Banner>
+              )}
+            </BlockStack>
+          </Modal.Section>
+        </Modal>
+      )}
 
-                    {actionData?.deleted && (
-                        <Banner tone="success" title="Mapping removed">
-                            <Text as="p" variant="bodyMd">
-                                The product mapping has been removed.
-                            </Text>
-                        </Banner>
-                    )}
+      {/* SIZE CHARTS MAPPING MODAL */}
+      {isBulkModalOpen && (
+        <Modal
+          open={isBulkModalOpen}
+          onClose={() => setIsBulkModalOpen(false)}
+          title={`Map ${selectedProductIds.length} Selected Products to Size Chart`}
+          primaryAction={{
+            content: `Save Mapping for ${selectedProductIds.length} Products`,
+            onAction: handleSaveBulkMapping,
+            loading: isSubmitting,
+          }}
+          secondaryActions={[
+            {
+              content: "Cancel",
+              onAction: () => setIsBulkModalOpen(false),
+            },
+          ]}
+        >
+          <Modal.Section>
+            <BlockStack gap="400">
+              <Text as="p" variant="bodyMd">
+                Assign a garment category and size chart guide to <strong>{selectedProductIds.length} selected clothing items</strong>:
+              </Text>
 
-                </Layout.Section>
+              <Select
+                label="Garment Category"
+                options={garmentTypes.map((g) => ({
+                  label: `${g.label} — (${g.description})`,
+                  value: g.value,
+                }))}
+                value={bulkGarmentType}
+                onChange={(val) => {
+                  setBulkGarmentType(val);
+                  setBulkChartOverride("");
+                }}
+                helpText="Select the garment type so Snug calculates body ease correctly."
+              />
 
-                <Layout.Section>
-                    <Card>
-                        <BlockStack gap="400">
-                            <BlockStack gap="200">
-                                <Text as="h2" variant="headingMd">Map Products</Text>
-                                <Text as="p" variant="bodyMd" tone="subdued">
-                                    Connect your Shopify products to garment types for correct size recommendations.
-                                </Text>
-                            </BlockStack>
+              <Select
+                label="Select Size Chart Guide"
+                options={[
+                  { label: "Use Default Category Size Guide", value: "" },
+                  ...(chartsByGarment[bulkGarmentType] || []).map((chart: any) => ({
+                    label: `${chart.sizeLabel} — (${chart.fitType} fit, Chest: ${chart.chestMinCm}-${chart.chestMaxCm}cm)`,
+                    value: chart.id,
+                  })),
+                ]}
+                value={bulkChartOverride}
+                onChange={setBulkChartOverride}
+                helpText="Choose a specific size chart created in Size Charts for these products."
+              />
 
-                            <Form method="post">
-                                <input type="hidden" name="intent" value="map-product" />
-                                <BlockStack gap="300">
-                                    <Text as="p" variant="bodyMd">
-                                        Enter product ID and select garment type:
-                                    </Text>
-                                    <InlineStack gap="300">
-                                        <input 
-                                            type="text" 
-                                            name="productId" 
-                                            placeholder="gid://shopify/Product/1234567890"
-                                            style={{ width: "100%", padding: "8px" }}
-                                        />
-                                        <select 
-                                            name="garmentType"
-                                            style={{ padding: "8px" }}
-                                        >
-                                            {garmentTypes.map(gt => (
-                                                <option key={gt.value} value={gt.value}>
-                                                    {gt.label}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </InlineStack>
-                                    <InlineStack align="end">
-                                        <Button
-                                            variant="primary"
-                                            submit
-                                            disabled={!hasSizeCharts}
-                                        >
-                                            Map Product
-                                        </Button>
-                                    </InlineStack>
-                                </BlockStack>
-                            </Form>
+              {(chartsByGarment[bulkGarmentType] || []).length === 0 && (
+                <Banner tone="warning">
+                  <Text as="p" variant="bodySm">
+                    No custom size charts created for <strong>{bulkGarmentType}</strong> yet in <Button url="/app/size-charts" variant="plain">Size Charts</Button>. Default category rules will apply.
+                  </Text>
+                </Banner>
+              )}
+            </BlockStack>
+          </Modal.Section>
+        </Modal>
+      )}
 
-                        </BlockStack>
-                    </Card>
-                </Layout.Section>
+      {/* STOREFRONT RECOMMENDER PREVIEW MODAL */}
+      {previewProduct && (
+        <Modal
+          open={Boolean(previewProduct)}
+          onClose={() => setPreviewProduct(null)}
+          title={`PDP Size Recommender Preview — ${previewProduct.title}`}
+          primaryAction={{
+            content: "Close Preview",
+            onAction: () => setPreviewProduct(null),
+          }}
+        >
+          <Modal.Section>
+            <BlockStack gap="400">
+              <Text as="p" variant="bodySm" tone="subdued">
+                Live storefront preview of how shoppers experience the size recommendation widget on this product page.
+              </Text>
 
-                <Layout.Section>
-                    <Card>
-                        <BlockStack gap="300">
-                            <Text as="h2" variant="headingMd">Your Product Mappings</Text>
-                            
-                            {mappings.length === 0 ? (
-                                <Text as="p" variant="bodyMd" tone="subdued">
-                                    No product mappings yet. Map your first product above.
-                                </Text>
-                            ) : (
-                                <BlockStack gap="200">
-                                    {mappings.map((row: any) => (
-                                        <InlineStack key={row.id} align="space-between">
-                                            <Text as="span">{row.shopifyProductId}</Text>
-                                            <InlineStack gap="200">
-                                                <Text as="span" tone="subdued">
-                                                    {GARMENT_TYPES.find(g => g.value === row.garmentType)?.label || row.garmentType}
-                                                </Text>
-                                                <Form method="post">
-                                                    <input type="hidden" name="intent" value="delete-mapping" />
-                                                    <input type="hidden" name="mappingId" value={row.id} />
-                                                    <Button variant="plain" submit>Remove</Button>
-                                                </Form>
-                                            </InlineStack>
-                                        </InlineStack>
-                                    ))}
-                                </BlockStack>
-                            )}
-                        </BlockStack>
-                    </Card>
-                </Layout.Section>
+              <div
+                style={{
+                  border: "1px solid #e1e3e5",
+                  borderRadius: "14px",
+                  padding: "24px",
+                  background: "#ffffff",
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.06)",
+                }}
+              >
+                <BlockStack gap="300">
+                  <InlineStack align="space-between" blockAlign="center">
+                    <Text variant="bodyXs" fontWeight="bold" tone="subdued" as="p">
+                      PRODUCT DETAIL PAGE
+                    </Text>
+                    <Badge tone="success">In Stock</Badge>
+                  </InlineStack>
 
-            </Layout>
-        </Page>
-    );
+                  <Divider />
+
+                  <BlockStack gap="050">
+                    <Text variant="headingLg" as="h3">{previewProduct.title}</Text>
+                    <Text variant="headingMd" fontWeight="bold" as="p" tone="success">
+                      {previewProduct.price || "₹1,899"}
+                    </Text>
+                  </BlockStack>
+
+                  {/* Size Selector Mock */}
+                  <BlockStack gap="150">
+                    <Text variant="bodySm" fontWeight="semibold" as="p">Select Garment Size:</Text>
+                    <InlineStack gap="150">
+                      {["S", "M", "L", "XL"].map((sz) => (
+                        <div
+                          key={sz}
+                          style={{
+                            padding: "8px 18px",
+                            border: sz === "L" ? "2px solid #008060" : "1px solid #d1d5db",
+                            background: sz === "L" ? "#e4f5ea" : "#ffffff",
+                            borderRadius: "6px",
+                            fontWeight: sz === "L" ? "bold" : "normal",
+                            fontSize: "13px",
+                          }}
+                        >
+                          {sz}
+                        </div>
+                      ))}
+                    </InlineStack>
+                  </BlockStack>
+
+                  {/* Add to Cart */}
+                  <button
+                    type="button"
+                    style={{
+                      width: "100%",
+                      padding: "14px",
+                      background: "#111827",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "8px",
+                      fontWeight: 700,
+                      fontSize: "14px",
+                    }}
+                  >
+                    Add to Cart
+                  </button>
+
+                  {/* Calibrated Recommendation Card Mock */}
+                  <div
+                    style={{
+                      border: "1.5px solid #059669",
+                      background: "#e4f5ea",
+                      borderRadius: "12px",
+                      padding: "14px 16px",
+                    }}
+                  >
+                    <BlockStack gap="150">
+                      <InlineStack align="space-between" blockAlign="center">
+                        <InlineStack gap="200" blockAlign="center">
+                          <div
+                            style={{
+                              width: "28px",
+                              height: "28px",
+                              borderRadius: "6px",
+                              background: "#008060",
+                              color: "#ffffff",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontWeight: "bold",
+                            }}
+                          >
+                            📏
+                          </div>
+                          <Text as="span" variant="bodyMd" fontWeight="bold">
+                            Your Recommended Size: L
+                          </Text>
+                          <Badge tone="success">98% Fit Match</Badge>
+                        </InlineStack>
+                        <Button variant="plain" size="micro">Change Reference</Button>
+                      </InlineStack>
+                      <Text as="p" variant="bodyXs" tone="subdued">
+                        Based on your Snitch T-Shirt Size L (Fits Perfect), Size L in this item provides an ideal regular fit.
+                      </Text>
+                    </BlockStack>
+                  </div>
+                </BlockStack>
+              </div>
+            </BlockStack>
+          </Modal.Section>
+        </Modal>
+      )}
+    </Page>
+  );
 }

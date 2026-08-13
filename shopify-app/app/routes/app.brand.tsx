@@ -19,9 +19,6 @@ import {
   Divider,
   Badge,
   Box,
-  Tag,
-  CalloutCard,
-  Spinner,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
