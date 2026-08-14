@@ -125,10 +125,13 @@ export async function pushMappingsToKV(orgId: string) {
   const key = `merchant:${orgId}:mappings`;
   if (!mappings.length) return kvDelete(key);
 
-  const payload = Object.fromEntries(mappings.map((mapping: any) => [
-    mapping.shopifyProductId,
-    { garment_type: mapping.garmentType, is_active: true },
-  ]));
+  const payload: Record<string, { garment_type: string; is_active: boolean }> = {};
+  for (const mapping of mappings) {
+    const rawId = String(mapping.shopifyProductId);
+    const cleanId = rawId.replace(/^gid:\/\/shopify\/Product\//, '');
+    payload[rawId] = { garment_type: mapping.garmentType, is_active: true };
+    payload[cleanId] = { garment_type: mapping.garmentType, is_active: true };
+  }
   return kvPut(key, payload);
 }
 

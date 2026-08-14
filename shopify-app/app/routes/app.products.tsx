@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { useLoaderData, useActionData, Form, useSubmit, useNavigation } from "react-router";
+import { useLoaderData, useActionData, useSubmit, useNavigation } from "react-router";
 import {
   Page,
   Layout,
@@ -14,21 +14,15 @@ import {
   TextField,
   Select,
   Modal,
-  ResourceList,
-  ResourceItem,
-  Thumbnail,
-  Checkbox,
   Divider,
   Box,
   EmptyState,
-  Tag,
   Tooltip,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { organizations, fitSizeCharts, garmentMappings } from "@snug/db";
 import { and, eq, inArray } from "drizzle-orm";
-import { randomUUID } from "crypto";
 import { pushMappingsToKV } from "../lib/kv.server";
 
 // Standard Garment Categories
@@ -104,6 +98,65 @@ const MOCK_PRODUCTS: CatalogProduct[] = [
   },
 ];
 
+// Custom high-contrast, accessible button-based checkbox with SVG checkmark
+function SelectionCheckbox({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (newChecked: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onChange(!checked);
+      }}
+      style={{
+        width: "22px",
+        height: "22px",
+        minWidth: "22px",
+        minHeight: "22px",
+        borderRadius: "5px",
+        border: checked ? "2px solid #008060" : "2px solid #8c9196",
+        backgroundColor: checked ? "#008060" : "#ffffff",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: "pointer",
+        padding: 0,
+        margin: 0,
+        boxSizing: "border-box",
+        flexShrink: 0,
+        outline: "none",
+        transition: "all 0.15s ease",
+      }}
+    >
+      {checked && (
+        <svg
+          viewBox="0 0 16 16"
+          width="13"
+          height="13"
+          fill="none"
+          stroke="#ffffff"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{ display: "block" }}
+        >
+          <polyline points="3.5 8.5 6.5 11.5 12.5 4.5" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const shop = session.shop;
@@ -147,7 +200,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   try {
     const response = await admin.graphql(`
       query getCatalogProducts {
-        products(first: 50) {
+        products(first: 100) {
           nodes {
             id
             title
@@ -215,70 +268,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { error: "Organization not found. Please reinstall app." };
   }
 
-  // Intent 1: Map single product
-  if (intent === "map-product") {
-    const productId = formData.get("productId") as string;
-    const garmentType = formData.get("garmentType") as string;
-    const chartOverrideId = (formData.get("chartOverrideId") as string) || null;
+  try {
+    // Intent 1: Map single product
+    if (intent === "map-product") {
+      const productId = formData.get("productId") as string;
+      const garmentType = formData.get("garmentType") as string;
+      const chartOverrideId = (formData.get("chartOverrideId") as string) || null;
 
-    if (!productId || !garmentType) {
-      return { error: "Please select both a product and a garment category." };
-    }
+      if (!productId || !garmentType) {
+        return { error: "Please select both a product and a garment category." };
+      }
 
-    const [existing] = await dbClient
-      .select()
-      .from(garmentMappingsTable)
-      .where(
-        and(
-          eq(garmentMappingsTable.orgId, org.id),
-          eq(garmentMappingsTable.shopifyProductId, productId)
-        )
-      )
-      .limit(1);
-
-    if (existing) {
-      await dbClient
-        .update(garmentMappingsTable)
-        .set({
-          garmentType,
-          chartOverrideId: chartOverrideId || null,
-          updatedAt: new Date(),
-        })
-        .where(eq(garmentMappingsTable.id, existing.id));
-    } else {
-      await dbClient.insert(garmentMappingsTable).values({
-        id: randomUUID(),
-        orgId: org.id,
-        shopifyProductId: productId,
-        garmentType,
-        chartOverrideId: chartOverrideId || null,
-      });
-    }
-
-    await pushMappingsToKV(org.id);
-    return { success: true, message: "Product mapped successfully!" };
-  }
-
-  // Intent 2: Bulk map products
-  if (intent === "bulk-map") {
-    const productIdsRaw = formData.get("productIds") as string;
-    const garmentType = formData.get("garmentType") as string;
-    const chartOverrideId = (formData.get("chartOverrideId") as string) || null;
-
-    if (!productIdsRaw || !garmentType) {
-      return { error: "Please select products and a garment category for bulk mapping." };
-    }
-
-    const productIds: string[] = JSON.parse(productIdsRaw);
-
-    for (const pid of productIds) {
       const [existing] = await dbClient
         .select()
         .from(garmentMappingsTable)
         .where(
           and(
             eq(garmentMappingsTable.orgId, org.id),
-            eq(garmentMappingsTable.shopifyProductId, pid)
+            eq(garmentMappingsTable.shopifyProductId, productId)
           )
         )
         .limit(1);
@@ -294,52 +301,142 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           .where(eq(garmentMappingsTable.id, existing.id));
       } else {
         await dbClient.insert(garmentMappingsTable).values({
-          id: randomUUID(),
           orgId: org.id,
-          shopifyProductId: pid,
+          shopifyProductId: productId,
           garmentType,
           chartOverrideId: chartOverrideId || null,
         });
       }
+
+      try {
+        await pushMappingsToKV(org.id);
+      } catch (kvErr) {
+        console.warn("[Products Action] KV sync notice:", kvErr);
+      }
+
+      return { success: true, message: "Product mapped successfully!" };
     }
 
-    await pushMappingsToKV(org.id);
-    return { success: true, message: `${productIds.length} products mapped successfully!` };
-  }
+    // Intent 2: Bulk map products
+    if (intent === "bulk-map") {
+      const productIdsRaw = formData.get("productIds") as string;
+      const garmentType = formData.get("garmentType") as string;
+      const chartOverrideId = (formData.get("chartOverrideId") as string) || null;
 
-  // Intent 3: Delete single product mapping
-  if (intent === "delete-mapping") {
-    const productId = formData.get("productId") as string;
-    if (productId) {
-      await dbClient
-        .delete(garmentMappingsTable)
-        .where(
-          and(
-            eq(garmentMappingsTable.orgId, org.id),
-            eq(garmentMappingsTable.shopifyProductId, productId)
+      if (!productIdsRaw || !garmentType) {
+        return { error: "Please select products and a garment category for bulk mapping." };
+      }
+
+      let productIds: string[] = [];
+      try {
+        productIds = JSON.parse(productIdsRaw);
+      } catch {
+        return { error: "Invalid product selection data." };
+      }
+
+      if (!Array.isArray(productIds) || productIds.length === 0) {
+        return { error: "No products selected for mapping." };
+      }
+
+      for (const pid of productIds) {
+        const [existing] = await dbClient
+          .select()
+          .from(garmentMappingsTable)
+          .where(
+            and(
+              eq(garmentMappingsTable.orgId, org.id),
+              eq(garmentMappingsTable.shopifyProductId, pid)
+            )
           )
-        );
-      await pushMappingsToKV(org.id);
-      return { deleted: true, message: "Product mapping removed." };
-    }
-  }
+          .limit(1);
 
-  // Intent 4: Bulk delete product mappings
-  if (intent === "bulk-delete-mapping") {
-    const productIdsRaw = formData.get("productIds") as string;
-    if (productIdsRaw) {
-      const productIds: string[] = JSON.parse(productIdsRaw);
-      await dbClient
-        .delete(garmentMappingsTable)
-        .where(
-          and(
-            eq(garmentMappingsTable.orgId, org.id),
-            inArray(garmentMappingsTable.shopifyProductId, productIds)
-          )
-        );
-      await pushMappingsToKV(org.id);
-      return { deleted: true, message: `Removed mappings for ${productIds.length} products.` };
+        if (existing) {
+          await dbClient
+            .update(garmentMappingsTable)
+            .set({
+              garmentType,
+              chartOverrideId: chartOverrideId || null,
+              updatedAt: new Date(),
+            })
+            .where(eq(garmentMappingsTable.id, existing.id));
+        } else {
+          await dbClient.insert(garmentMappingsTable).values({
+            orgId: org.id,
+            shopifyProductId: pid,
+            garmentType,
+            chartOverrideId: chartOverrideId || null,
+          });
+        }
+      }
+
+      try {
+        await pushMappingsToKV(org.id);
+      } catch (kvErr) {
+        console.warn("[Products Action] KV sync notice:", kvErr);
+      }
+
+      return { success: true, message: `${productIds.length} products mapped successfully!` };
     }
+
+    // Intent 3: Delete single product mapping
+    if (intent === "delete-mapping") {
+      const productId = formData.get("productId") as string;
+      if (productId) {
+        await dbClient
+          .delete(garmentMappingsTable)
+          .where(
+            and(
+              eq(garmentMappingsTable.orgId, org.id),
+              eq(garmentMappingsTable.shopifyProductId, productId)
+            )
+          );
+
+        try {
+          await pushMappingsToKV(org.id);
+        } catch (kvErr) {
+          console.warn("[Products Action] KV sync notice:", kvErr);
+        }
+
+        return { deleted: true, message: "Product mapping removed." };
+      }
+      return { error: "Missing product ID for removal." };
+    }
+
+    // Intent 4: Bulk delete product mappings
+    if (intent === "bulk-delete-mapping") {
+      const productIdsRaw = formData.get("productIds") as string;
+      if (productIdsRaw) {
+        let productIds: string[] = [];
+        try {
+          productIds = JSON.parse(productIdsRaw);
+        } catch {
+          return { error: "Invalid product deletion payload." };
+        }
+
+        if (Array.isArray(productIds) && productIds.length > 0) {
+          await dbClient
+            .delete(garmentMappingsTable)
+            .where(
+              and(
+                eq(garmentMappingsTable.orgId, org.id),
+                inArray(garmentMappingsTable.shopifyProductId, productIds)
+              )
+            );
+
+          try {
+            await pushMappingsToKV(org.id);
+          } catch (kvErr) {
+            console.warn("[Products Action] KV sync notice:", kvErr);
+          }
+
+          return { deleted: true, message: `Removed mappings for ${productIds.length} products.` };
+        }
+      }
+      return { error: "No products specified for bulk deletion." };
+    }
+  } catch (err: any) {
+    console.error("[Products Action Error]", err);
+    return { error: err?.message || "An unexpected error occurred." };
   }
 
   return { error: "Unknown action" };
@@ -359,7 +456,12 @@ export default function ProductMappingPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
-  // Modal State for Single Mapping Edit
+  // Keep localMappings synced with loader data revalidation
+  useEffect(() => {
+    setLocalMappings(initialMappings || []);
+  }, [initialMappings]);
+
+  // Modal State for Single Mapping Edit (Mapped Products)
   const [editModalProduct, setEditModalProduct] = useState<CatalogProduct | null>(null);
   const [selectedGarmentType, setSelectedGarmentType] = useState<string>("tshirt");
   const [selectedChartOverride, setSelectedChartOverride] = useState<string>("");
@@ -410,9 +512,10 @@ export default function ProductMappingPage() {
         if (availableCharts.length > 0) return false;
       }
 
-      // Category Filter
+      // Category Filter (only filters mapped products when category is selected)
       if (categoryFilter !== "all") {
-        if (!mapping || mapping.garmentType !== categoryFilter) return false;
+        if (mapping && mapping.garmentType !== categoryFilter) return false;
+        if (!mapping && statusFilter === "mapped") return false;
       }
 
       return true;
@@ -425,8 +528,13 @@ export default function ProductMappingPage() {
   }, [filteredProducts, mappingMap]);
 
   const mappedProductsList = useMemo(() => {
-    return filteredProducts.filter((p) => mappingMap.has(p.id));
-  }, [filteredProducts, mappingMap]);
+    return filteredProducts.filter((p) => {
+      const mapping = mappingMap.get(p.id);
+      if (!mapping) return false;
+      if (categoryFilter !== "all" && mapping.garmentType !== categoryFilter) return false;
+      return true;
+    });
+  }, [filteredProducts, mappingMap, categoryFilter]);
 
   // Metrics
   const mappedCount = useMemo(() => {
@@ -436,13 +544,22 @@ export default function ProductMappingPage() {
   const unmappedCount = products.length - mappedCount;
   const configuredChartsCount = (sizeCharts || []).length;
 
-  // Open single edit mapping modal
-  const handleOpenEditModal = (product: CatalogProduct) => {
+  // Stable toggle handler for selection
+  const toggleProductSelection = useCallback((productId: string) => {
+    setSelectedProductIds((prev) =>
+      prev.includes(productId)
+        ? prev.filter((id) => id !== productId)
+        : [...prev, productId]
+    );
+  }, []);
+
+  // Open single edit mapping modal (for mapped products)
+  const handleOpenEditModal = useCallback((product: CatalogProduct) => {
     const existing = mappingMap.get(product.id);
     setEditModalProduct(product);
     setSelectedGarmentType(existing?.garmentType || "tshirt");
     setSelectedChartOverride(existing?.chartOverrideId || "");
-  };
+  }, [mappingMap]);
 
   // Submit Single Product Mapping
   const handleSaveSingleMapping = () => {
@@ -462,7 +579,7 @@ export default function ProductMappingPage() {
       return [
         ...filtered,
         {
-          id: randomUUID(),
+          id: String(Date.now() + Math.random()),
           shopifyProductId: editModalProduct.id,
           garmentType: selectedGarmentType,
           chartOverrideId: selectedChartOverride || null,
@@ -497,10 +614,11 @@ export default function ProductMappingPage() {
     }
 
     // Optimistic update
+    const selectedSet = new Set(selectedProductIds);
     setLocalMappings((prev) => {
-      const remaining = prev.filter((m) => !selectedProductIds.includes(m.shopifyProductId));
+      const remaining = prev.filter((m) => !selectedSet.has(m.shopifyProductId));
       const added = selectedProductIds.map((pid) => ({
-        id: randomUUID(),
+        id: String(Date.now() + Math.random()),
         shopifyProductId: pid,
         garmentType: bulkGarmentType,
         chartOverrideId: bulkChartOverride || null,
@@ -521,71 +639,57 @@ export default function ProductMappingPage() {
     formData.set("intent", "bulk-delete-mapping");
     formData.set("productIds", JSON.stringify(selectedProductIds));
 
-    setLocalMappings((prev) => prev.filter((m) => !selectedProductIds.includes(m.shopifyProductId)));
+    const selectedSet = new Set(selectedProductIds);
+    setLocalMappings((prev) => prev.filter((m) => !selectedSet.has(m.shopifyProductId)));
     submit(formData, { method: "post" });
     setSelectedProductIds([]);
   };
 
+  // Select/Deselect all visible unmapped products
+  const handleToggleSelectAllUnmapped = useCallback(() => {
+    const unmappedIds = unmappedProductsList.map((p) => p.id);
+    const allSelected = unmappedIds.length > 0 && unmappedIds.every((id) => selectedProductIds.includes(id));
+    if (allSelected) {
+      setSelectedProductIds((prev) => prev.filter((id) => !unmappedIds.includes(id)));
+    } else {
+      setSelectedProductIds((prev) => Array.from(new Set([...prev, ...unmappedIds])));
+    }
+  }, [unmappedProductsList, selectedProductIds]);
+
+  const isAllUnmappedSelected = useMemo(() => {
+    return (
+      unmappedProductsList.length > 0 &&
+      unmappedProductsList.every((p) => selectedProductIds.includes(p.id))
+    );
+  }, [unmappedProductsList, selectedProductIds]);
+
   return (
     <Page
       title="Product Size Chart Mapping"
-      subtitle="Select products below and click Map Selected Products to connect them to your fit size charts."
+      subtitle="Select products below and click Map Selected to connect them to your fit size charts."
       compactTitle
-      primaryAction={{
-        content: selectedProductIds.length > 0 ? `Map ${selectedProductIds.length} Selected Products` : "Map Selected Products",
-        disabled: selectedProductIds.length === 0,
-        onAction: () => setIsBulkModalOpen(true),
-      }}
     >
       <Layout>
-        {/* Banner Notifications */}
-        <Layout.Section>
-          <BlockStack gap="300">
-            <Banner tone="info" title="👕 Upperwear Category Focus">
-              <Text as="p" variant="bodyMd">
-                Snug specializes in high-precision fit recommendations for <strong>Upperwear garments</strong> (T-shirts, Shirts, Polos, Hoodies, Sweatshirts, Jackets, Kurtas & Tops). Bottomwear sizing (jeans, trousers, skirts) will be added in upcoming updates.
-              </Text>
-            </Banner>
+        {/* Critical Banners Only */}
+        {(!hasOrg || actionData?.error) && (
+          <Layout.Section>
+            <BlockStack gap="300">
+              {!hasOrg && (
+                <Banner tone="critical" title="Organization Not Found">
+                  <Text as="p" variant="bodyMd">
+                    Please reinstall the Snug app to configure product size mappings.
+                  </Text>
+                </Banner>
+              )}
 
-            {!hasOrg && (
-              <Banner tone="critical" title="Organization Not Found">
-                <Text as="p" variant="bodyMd">
-                  Please reinstall the Snug app to configure product size mappings.
-                </Text>
-              </Banner>
-            )}
-
-            {configuredChartsCount === 0 && (
-              <Banner
-                tone="warning"
-                title="No Size Charts Created Yet"
-                action={{ content: "Create Size Charts →", url: "/app/size-charts" }}
-              >
-                <Text as="p" variant="bodyMd">
-                  You have not created any custom fit size charts. Select products and map them to garment categories, then create size charts in <strong>Size Charts</strong> to activate PDP recommendations.
-                </Text>
-              </Banner>
-            )}
-
-            {actionData?.error && (
-              <Banner tone="critical" title="Action Error">
-                <Text as="p" variant="bodyMd">{actionData.error}</Text>
-              </Banner>
-            )}
-
-            {actionData?.success && (
-              <Banner tone="success" title="Mapping Updated">
-                <Text as="p" variant="bodyMd">{actionData.message}</Text>
-              </Banner>
-            )}
-
-            {actionData?.deleted && (
-              <Banner tone="info" title="Mapping Removed">
-                <Text as="p" variant="bodyMd">{actionData.message}</Text>
-              </Banner>
-            )}
-          </BlockStack>
-        </Layout.Section>
+              {actionData?.error && (
+                <Banner tone="critical" title="Action Error">
+                  <Text as="p" variant="bodyMd">{actionData.error}</Text>
+                </Banner>
+              )}
+            </BlockStack>
+          </Layout.Section>
+        )}
 
         {/* Summary Metrics Bar */}
         <Layout.Section>
@@ -634,104 +738,100 @@ export default function ProductMappingPage() {
           </div>
         </Layout.Section>
 
-        {/* Search, Filter & Selection Bar */}
+        {/* Search & Filter Bar */}
         <Layout.Section>
           <Card padding="400">
-            <BlockStack gap="300">
-              <InlineStack align="space-between" blockAlign="center" gap="400">
-                <div style={{ flex: 2, minWidth: "240px" }}>
-                  <TextField
-                    label="Search products"
-                    labelHidden
-                    placeholder="Search catalog products..."
-                    value={searchValue}
-                    onChange={setSearchValue}
-                    clearButton
-                    onClearButtonClick={() => setSearchValue("")}
-                    autoComplete="off"
-                  />
-                </div>
+            <InlineStack align="space-between" blockAlign="center" gap="400">
+              <div style={{ flex: 2, minWidth: "240px" }}>
+                <TextField
+                  label="Search products"
+                  labelHidden
+                  placeholder="Search catalog products..."
+                  value={searchValue}
+                  onChange={setSearchValue}
+                  clearButton
+                  onClearButtonClick={() => setSearchValue("")}
+                  autoComplete="off"
+                />
+              </div>
 
-                <InlineStack gap="300" blockAlign="center">
-                  <Select
-                    label="Garment Category"
-                    labelHidden
-                    options={[
-                      { label: "All Garment Types", value: "all" },
-                      ...garmentTypes.map((g) => ({ label: g.label, value: g.value })),
-                    ]}
-                    value={categoryFilter}
-                    onChange={setCategoryFilter}
-                  />
-                </InlineStack>
+              <InlineStack gap="300" blockAlign="center">
+                <Select
+                  label="Status"
+                  labelHidden
+                  options={[
+                    { label: "All Statuses", value: "all" },
+                    { label: "Unmapped Only", value: "unmapped" },
+                    { label: "Mapped Only", value: "mapped" },
+                    { label: "Needs Size Chart", value: "needs_chart" },
+                  ]}
+                  value={statusFilter}
+                  onChange={setStatusFilter}
+                />
+
+                <Select
+                  label="Garment Category"
+                  labelHidden
+                  options={[
+                    { label: "All Garment Types", value: "all" },
+                    ...garmentTypes.map((g) => ({ label: g.label, value: g.value })),
+                  ]}
+                  value={categoryFilter}
+                  onChange={setCategoryFilter}
+                />
               </InlineStack>
-
-              {selectedProductIds.length > 0 && (
-                <Box padding="300" background="bg-surface-secondary" borderRadius="200">
-                  <InlineStack align="space-between" blockAlign="center">
-                    <InlineStack gap="200" blockAlign="center">
-                      <Badge tone="info">{`${selectedProductIds.length} Products Selected`}</Badge>
-                      <Text as="span" variant="bodySm" fontWeight="semibold">
-                        Select a size chart to apply to all chosen items
-                      </Text>
-                    </InlineStack>
-
-                    <InlineStack gap="200">
-                      <Button variant="primary" size="slim" onClick={() => setIsBulkModalOpen(true)}>
-                        Map Selected to Size Chart
-                      </Button>
-                      <Button variant="tertiary" size="slim" onClick={() => setSelectedProductIds([])}>
-                        Deselect All
-                      </Button>
-                    </InlineStack>
-                  </InlineStack>
-                </Box>
-              )}
-            </BlockStack>
+            </InlineStack>
           </Card>
         </Layout.Section>
 
         {/* 2-Column Split: Unmapped Products (Left) vs Mapped Products (Right) */}
         <Layout.Section>
           <style>{`
-            .snug-resource-list .Polaris-ResourceItem__Container {
-              display: flex !important;
-              flex-direction: row !important;
-              align-items: center !important;
-              justify-content: space-between !important;
-              width: 100% !important;
-              flex-wrap: nowrap !important;
-            }
-            .snug-resource-list .Polaris-ResourceItem__Content {
-              flex: 1 1 auto !important;
-              width: 100% !important;
-              min-width: 0 !important;
-            }
             .snug-column-card {
-              min-height: 580px !important;
-              max-height: 580px !important;
-              display: flex !important;
-              flex-direction: column !important;
+              min-height: 580px;
+              max-height: 580px;
+              display: flex;
+              flex-direction: column;
             }
-            .snug-resource-scroll-container {
-              flex: 1 !important;
-              max-height: 440px !important;
-              overflow-y: auto !important;
+            .snug-product-scroll-container {
+              flex: 1;
+              max-height: 440px;
+              overflow-y: auto;
               padding-right: 4px;
             }
-            .snug-resource-scroll-container::-webkit-scrollbar {
+            .snug-product-scroll-container::-webkit-scrollbar {
               width: 6px;
             }
-            .snug-resource-scroll-container::-webkit-scrollbar-track {
+            .snug-product-scroll-container::-webkit-scrollbar-track {
               background: #f1f2f3;
               border-radius: 4px;
             }
-            .snug-resource-scroll-container::-webkit-scrollbar-thumb {
+            .snug-product-scroll-container::-webkit-scrollbar-thumb {
               background: #c9cccf;
               border-radius: 4px;
             }
-            .snug-resource-scroll-container::-webkit-scrollbar-thumb:hover {
+            .snug-product-scroll-container::-webkit-scrollbar-thumb:hover {
               background: #a4a9ad;
+            }
+            .snug-product-row {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 12px;
+              padding: 10px 12px;
+              border-bottom: 1px solid #e1e3e5;
+              border-radius: 8px;
+              cursor: pointer;
+              transition: background-color 0.15s ease;
+              box-sizing: border-box;
+              width: 100%;
+              user-select: none;
+            }
+            .snug-product-row:hover {
+              background-color: #f6f6f7;
+            }
+            .snug-product-row-selected {
+              background-color: #f0f7f5 !important;
             }
           `}</style>
 
@@ -754,14 +854,25 @@ export default function ProductMappingPage() {
                       <Badge tone="info">{`${unmappedProductsList.length}`}</Badge>
                     </InlineStack>
 
-                    <Button
-                      variant="primary"
-                      size="slim"
-                      disabled={selectedProductIds.length === 0}
-                      onClick={() => setIsBulkModalOpen(true)}
-                    >
-                      {selectedProductIds.length > 0 ? `Map ${selectedProductIds.length} Selected` : "Map Selected"}
-                    </Button>
+                    <InlineStack gap="200" blockAlign="center">
+                      {unmappedProductsList.length > 0 && (
+                        <Button
+                          size="slim"
+                          variant="tertiary"
+                          onClick={handleToggleSelectAllUnmapped}
+                        >
+                          {isAllUnmappedSelected ? "Deselect All" : `Select All (${unmappedProductsList.length})`}
+                        </Button>
+                      )}
+                      <Button
+                        variant="primary"
+                        size="slim"
+                        disabled={selectedProductIds.length === 0}
+                        onClick={() => setIsBulkModalOpen(true)}
+                      >
+                        {selectedProductIds.length > 0 ? `Map ${selectedProductIds.length} Selected` : "Map Selected"}
+                      </Button>
+                    </InlineStack>
                   </InlineStack>
 
                   <Text as="p" variant="bodyXs" tone="subdued">
@@ -770,70 +881,82 @@ export default function ProductMappingPage() {
 
                   <Divider />
 
-                  <div className="snug-resource-list snug-resource-scroll-container">
-                    <ResourceList
-                      resourceName={{ singular: "unmapped product", plural: "unmapped products" }}
-                      items={unmappedProductsList}
-                      loading={isSubmitting}
-                      emptyState={
-                        <EmptyState
-                          heading="All Products Mapped! 🎉"
-                          image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
-                        >
-                          <Text as="p" variant="bodySm">
-                            Every product in this view has been connected to a size chart.
-                          </Text>
-                        </EmptyState>
-                      }
-                      renderItem={(product) => {
-                        const isSelected = selectedProductIds.includes(product.id);
-                        return (
-                          <ResourceItem
-                            id={product.id}
-                            url="#"
-                            onClick={() => {
-                              setSelectedProductIds((prev) =>
-                                prev.includes(product.id)
-                                  ? prev.filter((id) => id !== product.id)
-                                  : [...prev, product.id]
-                              );
-                            }}
-                            media={
-                              <InlineStack gap="200" blockAlign="center">
-                                <div onClick={(e) => e.stopPropagation()}>
-                                  <Checkbox
-                                    label={`Select ${product.title}`}
-                                    labelHidden
-                                    checked={isSelected}
-                                    onChange={() => {
-                                      setSelectedProductIds((prev) =>
-                                        prev.includes(product.id)
-                                          ? prev.filter((id) => id !== product.id)
-                                          : [...prev, product.id]
-                                      );
-                                    }}
+                  <div className="snug-product-scroll-container">
+                    {unmappedProductsList.length === 0 ? (
+                      <EmptyState
+                        heading="All Products Mapped! 🎉"
+                        image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+                      >
+                        <Text as="p" variant="bodySm">
+                          Every product in this view has been connected to a size chart.
+                        </Text>
+                      </EmptyState>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                        {unmappedProductsList.map((product) => {
+                          const isSelected = selectedProductIds.includes(product.id);
+                          return (
+                            <div
+                              key={product.id}
+                              className={`snug-product-row ${isSelected ? "snug-product-row-selected" : ""}`}
+                              onClick={() => toggleProductSelection(product.id)}
+                            >
+                              {/* Left Section: Checkbox + Image + Title/Vendor */}
+                              <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0, flex: 1 }}>
+                                <SelectionCheckbox
+                                  label={`Select ${product.title}`}
+                                  checked={isSelected}
+                                  onChange={() => toggleProductSelection(product.id)}
+                                />
+                                <div
+                                  style={{
+                                    width: "40px",
+                                    height: "40px",
+                                    minWidth: "40px",
+                                    flexShrink: 0,
+                                    borderRadius: "6px",
+                                    overflow: "hidden",
+                                    border: "1px solid #e1e3e5",
+                                    backgroundColor: "#f6f6f7",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                  }}
+                                >
+                                  <img
+                                    src={product.imageUrl || "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png"}
+                                    alt={product.title}
+                                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
                                   />
                                 </div>
-                                <Thumbnail
-                                  source={product.imageUrl || "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png"}
-                                  alt={product.title}
-                                  size="small"
-                                />
-                              </InlineStack>
-                            }
-                          >
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", width: "100%" }}>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <Text as="h3" variant="bodyMd" fontWeight="bold">
-                                  {product.title}
-                                </Text>
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                  <div
+                                    style={{
+                                      fontSize: "14px",
+                                      fontWeight: 600,
+                                      color: "#202223",
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                    }}
+                                  >
+                                    {product.title}
+                                  </div>
+                                  <div style={{ fontSize: "12px", color: "#6d7175", marginTop: "2px" }}>
+                                    Vendor: {product.vendor}
+                                  </div>
+                                </div>
                               </div>
-                              <Badge tone="info">Unmapped</Badge>
+
+                              {/* Right Section: Badge Only */}
+                              <div style={{ flexShrink: 0, marginLeft: "8px" }}>
+                                <Badge tone="info">Unmapped</Badge>
+                              </div>
                             </div>
-                          </ResourceItem>
-                        );
-                      }}
-                    />
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </BlockStack>
               </Card>
@@ -856,12 +979,8 @@ export default function ProductMappingPage() {
 
                   <Divider />
 
-                  <div className="snug-resource-list snug-resource-scroll-container">
-                  <ResourceList
-                    resourceName={{ singular: "mapped product", plural: "mapped products" }}
-                    items={mappedProductsList}
-                    loading={isSubmitting}
-                    emptyState={
+                  <div className="snug-product-scroll-container">
+                    {mappedProductsList.length === 0 ? (
                       <EmptyState
                         heading="No Mapped Products Yet"
                         image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
@@ -870,98 +989,126 @@ export default function ProductMappingPage() {
                           Select products from the unmapped column and click Map Selected to start.
                         </Text>
                       </EmptyState>
-                    }
-                    renderItem={(product) => {
-                      const mapping = mappingMap.get(product.id);
-                      const garmentLabel = garmentTypes.find((g) => g.value === mapping?.garmentType)?.label || mapping?.garmentType;
-                      const availableCharts = mapping ? (chartsByGarment[mapping.garmentType] || []) : [];
-                      const specificChart = mapping?.chartOverrideId
-                        ? (sizeCharts || []).find((c: any) => c.id === mapping.chartOverrideId)
-                        : null;
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                        {mappedProductsList.map((product) => {
+                          const mapping = mappingMap.get(product.id);
+                          const garmentLabel = garmentTypes.find((g) => g.value === mapping?.garmentType)?.label || mapping?.garmentType;
+                          const availableCharts = mapping ? (chartsByGarment[mapping.garmentType] || []) : [];
+                          const specificChart = mapping?.chartOverrideId
+                            ? (sizeCharts || []).find((c: any) => c.id === mapping.chartOverrideId)
+                            : null;
 
-                      let statusBadge = (
-                        <Badge tone="success">🟢 Ready</Badge>
-                      );
-                      if (availableCharts.length === 0 && !specificChart) {
-                        statusBadge = <Badge tone="attention">🟡 Needs Chart</Badge>;
-                      }
-
-                      return (
-                        <ResourceItem
-                          id={product.id}
-                          url="#"
-                          media={
-                            <Thumbnail
-                              source={product.imageUrl || "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png"}
-                              alt={product.title}
-                              size="small"
-                            />
+                          let statusBadge = (
+                            <Badge tone="success">🟢 Ready</Badge>
+                          );
+                          if (availableCharts.length === 0 && !specificChart) {
+                            statusBadge = <Badge tone="attention">🟡 Needs Chart</Badge>;
                           }
-                        >
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", width: "100%", flexWrap: "nowrap" }}>
-                            {/* Left: Product Title & Badges */}
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <BlockStack gap="025">
-                                <Text as="h3" variant="bodyMd" fontWeight="bold">
-                                  {product.title}
-                                </Text>
-                                <InlineStack gap="100">
-                                  <Badge tone="info">{garmentLabel}</Badge>
-                                  {specificChart && (
-                                    <Badge>{specificChart.sizeLabel || "Custom"}</Badge>
-                                  )}
-                                </InlineStack>
-                              </BlockStack>
-                            </div>
 
-                            {/* Right: Readiness Badge & Action Buttons */}
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
-                              {statusBadge}
-
-                              <Tooltip content="Preview size recommender widget on PDP">
-                                <Button
-                                  size="micro"
-                                  variant="tertiary"
-                                  onClick={(e?: React.MouseEvent) => {
-                                    e?.stopPropagation();
-                                    setPreviewProduct(product);
+                          return (
+                            <div
+                              key={product.id}
+                              className="snug-product-row"
+                              style={{ cursor: "default" }}
+                            >
+                              {/* Left: Image + Title + Category Badges */}
+                              <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0, flex: 1 }}>
+                                <div
+                                  style={{
+                                    width: "40px",
+                                    height: "40px",
+                                    minWidth: "40px",
+                                    flexShrink: 0,
+                                    borderRadius: "6px",
+                                    overflow: "hidden",
+                                    border: "1px solid #e1e3e5",
+                                    backgroundColor: "#f6f6f7",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
                                   }}
                                 >
-                                  👁️
+                                  <img
+                                    src={product.imageUrl || "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png"}
+                                    alt={product.title}
+                                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                  />
+                                </div>
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                  <div
+                                    style={{
+                                      fontSize: "14px",
+                                      fontWeight: 600,
+                                      color: "#202223",
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                    }}
+                                  >
+                                    {product.title}
+                                  </div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px", flexWrap: "wrap" }}>
+                                    <Badge tone="info">{garmentLabel}</Badge>
+                                    {specificChart && (
+                                      <Badge>{specificChart.sizeLabel || "Custom Chart"}</Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Right: Readiness + Action Buttons */}
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+                                {statusBadge}
+
+                                <Tooltip content="Edit garment category & size chart">
+                                  <Button
+                                    size="micro"
+                                    variant="secondary"
+                                    onClick={() => handleOpenEditModal(product)}
+                                  >
+                                    Edit
+                                  </Button>
+                                </Tooltip>
+
+                                <Tooltip content="Preview size recommender widget on PDP">
+                                  <Button
+                                    size="micro"
+                                    variant="tertiary"
+                                    onClick={() => setPreviewProduct(product)}
+                                  >
+                                    👁️ Preview
+                                  </Button>
+                                </Tooltip>
+
+                                <Button
+                                  size="micro"
+                                  variant="plain"
+                                  tone="critical"
+                                  onClick={() => handleRemoveSingleMapping(product)}
+                                >
+                                  Unmap
                                 </Button>
-                              </Tooltip>
-
-                              <Button
-                                size="micro"
-                                variant="plain"
-                                tone="critical"
-                                onClick={(e?: React.MouseEvent) => {
-                                  e?.stopPropagation();
-                                  handleRemoveSingleMapping(product);
-                                }}
-                              >
-                                Unmap
-                              </Button>
+                              </div>
                             </div>
-                          </div>
-                        </ResourceItem>
-                      );
-                    }}
-                  />
-                </div>
-              </BlockStack>
-            </Card>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </BlockStack>
+              </Card>
+            </div>
           </div>
-        </div>
-      </Layout.Section>
-    </Layout>
+        </Layout.Section>
+      </Layout>
 
-      {/* SINGLE PRODUCT MAPPING MODAL */}
+      {/* SINGLE PRODUCT MAPPING / EDIT MODAL */}
       {editModalProduct && (
         <Modal
           open={Boolean(editModalProduct)}
           onClose={() => setEditModalProduct(null)}
-          title={`Map Product: ${editModalProduct.title}`}
+          title={`Edit Mapping: ${editModalProduct.title}`}
           primaryAction={{
             content: "Save Mapping",
             onAction: handleSaveSingleMapping,
@@ -977,11 +1124,25 @@ export default function ProductMappingPage() {
           <Modal.Section>
             <BlockStack gap="400">
               <InlineStack gap="300" blockAlign="center">
-                <Thumbnail
-                  source={editModalProduct.imageUrl || "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png"}
-                  alt={editModalProduct.title}
-                  size="small"
-                />
+                <div
+                  style={{
+                    width: "48px",
+                    height: "48px",
+                    borderRadius: "6px",
+                    overflow: "hidden",
+                    border: "1px solid #e1e3e5",
+                    backgroundColor: "#f6f6f7",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <img
+                    src={editModalProduct.imageUrl || "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png"}
+                    alt={editModalProduct.title}
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  />
+                </div>
                 <BlockStack gap="025">
                   <Text as="p" variant="bodyLg" fontWeight="bold">{editModalProduct.title}</Text>
                   <Text as="p" variant="bodyXs" tone="subdued">Vendor: {editModalProduct.vendor}</Text>
@@ -1033,7 +1194,7 @@ export default function ProductMappingPage() {
         </Modal>
       )}
 
-      {/* SIZE CHARTS MAPPING MODAL */}
+      {/* BULK SIZE CHARTS MAPPING MODAL */}
       {isBulkModalOpen && (
         <Modal
           open={isBulkModalOpen}
@@ -1111,7 +1272,7 @@ export default function ProductMappingPage() {
           <Modal.Section>
             <BlockStack gap="400">
               <Text as="p" variant="bodySm" tone="subdued">
-                Live storefront preview of how shoppers experience the size recommendation widget on this product page.
+                Live storefront preview of how shoppers experience the calibrated size recommendation widget on this product page.
               </Text>
 
               <div
@@ -1135,9 +1296,16 @@ export default function ProductMappingPage() {
 
                   <BlockStack gap="050">
                     <Text variant="headingLg" as="h3">{previewProduct.title}</Text>
-                    <Text variant="headingMd" fontWeight="bold" as="p" tone="success">
-                      {previewProduct.price || "₹1,899"}
-                    </Text>
+                    <InlineStack gap="150" blockAlign="center">
+                      <Text variant="headingMd" fontWeight="bold" as="p" tone="success">
+                        {previewProduct.price || "₹1,899"}
+                      </Text>
+                      {mappingMap.get(previewProduct.id) && (
+                        <Badge tone="info">
+                          {garmentTypes.find((g) => g.value === mappingMap.get(previewProduct.id)?.garmentType)?.label || "Garment"}
+                        </Badge>
+                      )}
+                    </InlineStack>
                   </BlockStack>
 
                   {/* Size Selector Mock */}
@@ -1174,6 +1342,7 @@ export default function ProductMappingPage() {
                       borderRadius: "8px",
                       fontWeight: 700,
                       fontSize: "14px",
+                      cursor: "pointer",
                     }}
                   >
                     Add to Cart
@@ -1214,7 +1383,7 @@ export default function ProductMappingPage() {
                         <Button variant="plain" size="micro">Change Reference</Button>
                       </InlineStack>
                       <Text as="p" variant="bodyXs" tone="subdued">
-                        Based on your Snitch T-Shirt Size L (Fits Perfect), Size L in this item provides an ideal regular fit.
+                        Based on your Snitch T-Shirt Size L (Fits Perfect), Size L in this item provides an ideal regular fit with calibrated ease.
                       </Text>
                     </BlockStack>
                   </div>
