@@ -58,9 +58,6 @@ erDiagram
     text plan_tier
     integer trial_requests_remaining
     timestamp trial_exhausted_at
-    integer base_fee_inr
-    integer per_conversion_inr
-    integer monthly_cap_inr
     text shopify_charge_id
     timestamp billing_period_start
     timestamp upgraded_at
@@ -223,15 +220,12 @@ erDiagram
     text shop UK "myshopify.com domain. UNIQUE — one store = one org. Join key to sessions"
     text brand_slug "Merchant brand e.g. snitch. Must exactly match brand_size_charts.brand"
     text api_key UK "Auto-generated on OAuth. Widget sends this to authenticate Worker calls"
-    text plan_tier "trial or paid. CHECK constraint"
-    integer trial_requests_remaining "Durable reporting value. Live enforcement is in UsageCounter DO"
-    timestamp trial_exhausted_at "Null while trial is active. Set when counter hits 0"
-    integer base_fee_inr "Monthly fixed fee in INR — paid tier only, nullable"
-    integer per_conversion_inr "Per-conversion charge in INR — paid tier only, nullable"
-    integer monthly_cap_inr "Max monthly charge cap — paid tier only, nullable"
-    text shopify_charge_id "Shopify Billing API charge ID — paid tier only, nullable"
-    timestamp billing_period_start "Start of current billing period. Resets on upgrade or period rollover"
-    timestamp upgraded_at "When merchant moved to paid. Null on trial"
+    text plan_tier "Purchased subscription. CHECK IN (trial, starter, growth). Prices and monthly limits live in app config, not on this row"
+    integer trial_requests_remaining "Durable reporting value for remaining requests this period. Live enforcement is in UsageCounter DO. Period allowance is looked up from PLANS[plan_tier]"
+    timestamp trial_exhausted_at "Null while trial still has requests. Set when trial counter hits 0"
+    text shopify_charge_id "Shopify Billing API recurring charge ID. Null on trial. Proves the merchant actually approved the subscription"
+    timestamp billing_period_start "Start of current billing period. Resets on upgrade or monthly rollover"
+    timestamp upgraded_at "When merchant left trial for a paid tier. Null on trial"
     boolean onboarding_complete "Has merchant finished initial setup? Separate from widget_active"
     boolean widget_active "Is widget actively serving? Worker checks this on every request"
     timestamp installed_at "First install — used for cohort retention analysis"
@@ -240,9 +234,22 @@ erDiagram
 ```
 
 **Key design notes:**
-- `trial_requests_remaining` is the **durable reporting value** synced from the `UsageCounter` Durable Object at milestones. Never written on the hot prediction path.
+- Billing is a **flat monthly subscription**, not per-conversion pricing. The org row stores *which tier they bought*. It does not store prices.
+- `plan_tier` is the only commercial field that varies per merchant. Price, request allowance, and feature flags are a code catalog:
+
+```
+PLANS = {
+  trial:   { priceInr: 0,   monthlyRequests: 1000  },
+  starter: { priceInr: 499, monthlyRequests: 3000  },
+  growth:  { priceInr: 999, monthlyRequests: 10000 },
+}
+```
+
+  Changing a price or limit is a catalog change. Existing org rows are not rewritten.
+- `shopify_charge_id` is not a price. It is the link to Shopify Billing. Without it you cannot tell “selected Growth” from “approved the charge.”
+- `trial_requests_remaining` is the **durable reporting value** synced from the `UsageCounter` Durable Object at milestones. Never written on the hot prediction path. The DO’s starting allowance comes from `PLANS[plan_tier].monthlyRequests`.
 - `onboarding_complete` and `widget_active` are intentionally split. Onboarding = has the merchant done initial setup. Widget active = is the widget currently live. A merchant can complete onboarding and then pause their widget.
-- All billing columns (`base_fee_inr`, `per_conversion_inr`, etc.) are nullable — only populated on upgrade to paid.
+- Do not add `base_fee_inr`, `per_conversion_inr`, or `monthly_cap_inr` to this table. Those are catalog attributes, not merchant state.
 
 ---
 
@@ -362,17 +369,17 @@ erDiagram
     uuid usage_log_id "Soft ref to usage_logs — the specific prediction that preceded this purchase"
     text visitor_id "Anonymous shopper token — the correlation key between prediction and Shopify order"
     text shopify_product_id "Which product was purchased"
-    boolean billed "Has this conversion been included in a billing invoice? Starts false"
-    text billing_period "Format YYYY-MM e.g. 2026-08. Used for monthly invoice grouping and capping"
+    boolean billed "Unused for invoices under subscription billing. Kept only if a later usage-overage experiment needs it. Starts false"
+    text billing_period "Format YYYY-MM e.g. 2026-08. Analytics grouping by calendar month — not an invoice key"
     timestamp created_at
   }
 ```
 
 **Indexes:**
-- `(org_id, billing_period)` — billing cron: count unbilled conversions per org per month.
+- `(org_id, billing_period)` — monthly conversion counts for the analytics dashboard.
 - `(visitor_id, shopify_product_id)` — deduplication: prevent double-counting if Shopify fires the webhook twice.
 
-**Billing flow:** Cron reads `billed=false` rows grouped by `billing_period`, calculates `count * per_conversion_inr`, creates Shopify charge, then marks rows `billed=true`.
+**Not a billing table.** Shopify charges the merchant the flat `PLANS[plan_tier]` subscription. This table answers whether a prediction later became an order. It does not create invoices.
 
 ---
 
@@ -471,17 +478,9 @@ Shopper flow:
   7. Sets usage_logs.led_to_conversion = true
 ```
 
-This table serves two purposes:
+This table is **merchant analytics only**. It answers: "Your widget helped convert X shoppers this month — here is your conversion rate." Without it, the dashboard can only show predictions served, not whether those predictions led to purchases.
 
-**1. Merchant analytics:** "Your widget helped convert X shoppers this month — here is your conversion rate." Without this, the analytics dashboard can only show predictions served, not whether those predictions led to purchases.
-
-**2. Billing on paid tier:** On a `per_conversion_inr` plan, the monthly billing cron:
-- Counts `billed=false` rows per `billing_period` per org
-- Calculates `count × per_conversion_inr` (capped by `monthly_cap_inr`)
-- Creates Shopify billing charge
-- Marks those rows `billed=true`
-
-Without `conversion_events`, you cannot prove ROI to merchants and you cannot run a conversion-based billing model.
+It is not how Snug gets paid. Payment is the Shopify recurring charge for `organizations.plan_tier`. Prices live in the `PLANS` catalog, not on this table and not on `organizations`.
 
 ---
 
