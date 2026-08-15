@@ -187,7 +187,6 @@ The source of truth for everything. The only permanent store. Every other system
 | `brand_size_charts` | Cron job (for KV push) | Scraper pipeline |
 | `anthropometric_anchors` | Scraper pipeline (for ease inference) | Seeded once at setup |
 | `brand_requests` | Dashboard | Dashboard |
-| `scrape_runs` | Dashboard (operational visibility) | Scraper pipeline |
 
 **Two connection strings:**
 - Full access: used by the dashboard and cron jobs
@@ -259,13 +258,12 @@ Two separate jobs co-located with the dashboard on Railway.
 
 ### Scraper Pipeline
 
-Async background service. Runs on a weekly schedule. The only component that writes to `brand_size_charts` and `scrape_runs`. Never called by any other component.
+Async background service. Runs on a weekly schedule. The only component that writes to `brand_size_charts`. Never called by any other component.
 
 **Responsibilities:**
 - Visit reference brand websites and extract size chart data
 - Compute ease values using three ranked sources: explicit from brand, inferred from `anthropometric_anchors`, or user-calibrated from accumulated declarations
 - Write or upsert rows to `brand_size_charts` in Neon
-- Write a row to `scrape_runs` recording status, rows written, and any errors
 - Push updated brand data to Cloudflare KV after each successful run
 
 ---
@@ -581,11 +579,6 @@ UPSERT rows to brand_size_charts in Neon
   ON CONFLICT (brand, garment_type, size_label) DO UPDATE
         │
         ▼
-Write row to scrape_runs in Neon:
-  brand, status, rows_written,
-  error_message, started_at, completed_at
-        │
-        ▼
 Push updated data to Cloudflare KV:
   chart:{brand}:{garment}:{size} per row
   chart:{brand}:{garment}:all per brand+garment combination
@@ -758,7 +751,7 @@ BillingCron  Neon       Redis      KV
              │  sessions          organizations  │
              │  widget_configs    fit_size_charts │
              │  garment_mappings  usage_logs      │
-             │  brand_size_charts scrape_runs     │
+             │  brand_size_charts                 │
              │  anthropometric_anchors            │
              │  brand_requests                    │
              └──────┬──────────────┬─────────────┘
@@ -983,21 +976,6 @@ Seed values (male, source: NIFT_2020):
 
 ---
 
-### scrape_runs
-
-```
-run_id                uuid        PRIMARY KEY
-brand                 text        NOT NULL (references brand_size_charts.brand)
-status                text        NOT NULL
-                                  CHECK IN ('success','partial','failed')
-rows_written          integer     NOT NULL DEFAULT 0
-error_message         text        nullable
-started_at            timestamp   NOT NULL
-completed_at          timestamp   nullable
-```
-
----
-
 ### sessions
 
 ```
@@ -1064,7 +1042,6 @@ sessions ───────────────────── organiz
 | `brand_size_charts` | `fit_type` | slim, regular, oversized |
 | `brand_size_charts` | `ease_source` | explicit, inferred, user_calibrated |
 | `anthropometric_anchors` | `gender` | M, F, unisex |
-| `scrape_runs` | `status` | success, partial, failed |
 | `brand_requests` | `status` | pending, in_progress, completed, rejected |
 
 ---
@@ -1111,7 +1088,7 @@ Every system component has access to exactly what it needs and nothing more:
 | Cloudflare Worker | INSERT on `usage_logs` only | Read all KV keys | DECR `usage:{}`, INCR `rl:{}` |
 | React Router Dashboard | Full read/write | Write `apikey:{}`, `shop:{}`, `merchant:{}` | None |
 | Cron jobs | Full read/write | Write `shop:{}`, `merchant:{}` | SET `usage:{}` |
-| Scraper pipeline | Write `brand_size_charts`, `scrape_runs` | Write `chart:{}`, `brands:supported` | None |
+| Scraper pipeline | Write `brand_size_charts` | Write `chart:{}`, `brands:supported` | None |
 
 ---
 
@@ -1151,5 +1128,5 @@ Every system component has access to exactly what it needs and nothing more:
 | `returned` and `shopify_order_id` | Not in `usage_logs` | Return correlation requires a separate order events system. These fields would be null on every row at write time. |
 | Product titles | Not stored in `garment_mappings` | Titles change in Shopify. Fetched from Shopify Admin API at dashboard render time using `read_products` scope. |
 | Two cron jobs | Usage sync (every few minutes) and billing rollover (once per day) are separate | Different cadences. Conflating them into one job makes both harder to reason about and debug. |
-| Scraper independence | Scraper is the only writer to `brand_size_charts` and `scrape_runs` | Clean separation of concerns. No other component can corrupt reference brand data. |
+| Scraper independence | Scraper is the only writer to `brand_size_charts` | Clean separation of concerns. No other component can corrupt reference brand data. |
 | Worker database access | Restricted connection string, INSERT on `usage_logs` only | Principle of least privilege. Limits blast radius if Worker is ever compromised. |

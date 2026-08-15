@@ -19,8 +19,7 @@
 9. [brand_size_charts](#9-brand_size_charts)
 10. [anthropometric_anchors](#10-anthropometric_anchors)
 11. [brand_requests](#11-brand_requests)
-12. [scrape_runs](#12-scrape_runs)
-13. [What scrape_runs and conversion_events actually are](#13-what-scrape_runs-and-conversion_events-actually-are)
+12. [What conversion_events actually is](#12-what-conversion_events-actually-is)
 
 ---
 
@@ -28,7 +27,7 @@
 
 > Solid lines = foreign key (hard DB constraint). Dashed lines = soft reference (app-level only, no FK).
 
-```mermaid
+```mermaid 
 erDiagram
 
   sessions {
@@ -124,7 +123,7 @@ erDiagram
     timestamp created_at
   }
 
-  conversion_events {
+  conversion_events { // recc to add to cart to order , recc to order , rec to add to cart && no order 
     uuid id PK
     uuid org_id
     uuid usage_log_id
@@ -145,7 +144,7 @@ erDiagram
     numeric length_max_cm
     numeric shoulder_min_cm
     numeric shoulder_max_cm
-    text fit_type
+    text fit_type // jsonb 
     numeric ease_value_cm
     text ease_source
     timestamp scraped_at
@@ -171,24 +170,13 @@ erDiagram
     timestamp updated_at
   }
 
-  scrape_runs {
-    uuid id PK
-    text brand
-    text status
-    integer rows_written
-    text error_message
-    timestamp started_at
-    timestamp completed_at
-  }
-
   organizations ||--|| widget_configs : "has one"
   organizations ||--o{ fit_size_charts : "owns"
   organizations ||--o{ garment_mappings : "owns"
   organizations ||--o{ brand_requests : "submits"
-  usage_logs }o..o{ organizations : "soft ref"
-  conversion_events }o..o{ usage_logs : "soft ref"
-  conversion_events }o..o{ organizations : "soft ref"
-  scrape_runs }o..|| brand_size_charts : "writes to brand"
+  usage_logs }o..|| organizations : "soft ref"
+  conversion_events }o..|| usage_logs : "soft ref"
+  conversion_events }o..|| organizations : "soft ref"
 ```
 
 ---
@@ -466,49 +454,7 @@ erDiagram
 
 ---
 
-## 12. scrape_runs
-
-> **Owner:** WebScraper-Snug pipeline. One row per brand per scrape attempt. The operational health log for the scraper system.
-
-```mermaid
-erDiagram
-  scrape_runs {
-    uuid id PK
-    text brand "Which brand this run attempted. Matches brand_size_charts.brand"
-    text status "success | partial | failed. CHECK constraint. partial = some garment types scraped not all"
-    integer rows_written "Rows written to brand_size_charts. A success with 0 rows should fire an alert"
-    text error_message "Nullable. Failure or partial reason. Null on success"
-    timestamp started_at "When scraper began processing this brand"
-    timestamp completed_at "Nullable — null if scraper crashed before finishing"
-  }
-```
-
-**Why it exists:** Without this table there is no operational visibility into the scraper. Silently failed scrapes only surface when merchants complain about low confidence scores. `scrape_runs` lets the team monitor: which brands are failing, scrape duration trends (brand website slowdowns), and when data was last refreshed.
-
-**Relationship to confidence score:** The confidence signal reads `scraped_at` from `brand_size_charts` rows. `scrape_runs` is the internal audit trail that explains *why* a `scraped_at` might be stale — was it a partial failure? When was the last successful run?
-
----
-
-## 13. What scrape_runs and conversion_events actually are
-
-### `scrape_runs` — the scraper's operation log
-
-Think of it as a **per-run audit trail for WebScraper-Snug**. Every time the scraper runs for a brand, it writes one row:
-
-```
-brand=snitch | status=success | rows_written=24 | started_at=... | completed_at=...
-brand=bewakoof | status=partial | rows_written=12 | error_message="hoodie tab not found" | ...
-brand=overlays | status=failed | rows_written=0 | error_message="timeout on product page" | ...
-```
-
-This is completely invisible to merchants. It is internal operational tooling — it tells the Snug team:
-- Is the scraper keeping data fresh?
-- Which brands are failing and why?
-- How long does each brand take? (useful for detecting site slowdowns)
-
-It connects to the confidence score indirectly: `brand_size_charts.scraped_at` is what the algorithm reads for freshness. `scrape_runs` is what tells you *why* that timestamp might be stale.
-
----
+## 12. What conversion_events actually is
 
 ### `conversion_events` — the purchase attribution table
 
@@ -551,7 +497,6 @@ Without `conversion_events`, you cannot prove ROI to merchants and you cannot ru
 | `usage_logs` | `organizations` | many-to-one | **soft — no FK** |
 | `conversion_events` | `organizations` | many-to-one | **soft — no FK** |
 | `conversion_events` | `usage_logs` | many-to-one | **soft — no FK** |
-| `scrape_runs` | `brand_size_charts` | writes to via brand slug | **soft — no FK** |
 | `organizations` | `brand_size_charts` | via `brand_slug` field | **soft — no FK** |
 
 **Why `usage_logs` and `conversion_events` have no FKs:**

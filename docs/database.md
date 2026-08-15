@@ -17,8 +17,7 @@ Every table, every column, every decision explained. This document covers what e
 7. [brand_size_charts](#7-brand_size_charts)
 8. [anthropometric_anchors](#8-anthropometric_anchors)
 9. [brand_requests](#9-brand_requests)
-10. [scrape_runs](#10-scrape_runs)
-11. [Cross-cutting decisions](#11-cross-cutting-decisions)
+10. [Cross-cutting decisions](#10-cross-cutting-decisions)
     - All primary keys are UUIDs
     - All timestamps are stored in UTC
     - Check constraints on all enums
@@ -248,27 +247,7 @@ Cloudflare KV can distribute the current plan metadata but is never the quota au
 
 ---
 
-## 10. scrape_runs
-
-**Who writes it:** The scraper pipeline, once per brand per scrape run.
-
-**Why it exists:** Without this table there is no operational visibility into the scraper. If the scraper silently fails for a brand, you will not know until a merchant complains that their predictions have low confidence scores because the data is stale. This table is the health log for the scraper system.
-
-| Column | Type | Decision |
-|--------|------|----------|
-| `run_id` | uuid PK | Row identifier. |
-| `brand` | text | Which brand this run attempted to scrape. Matches the `brand` column in `brand_size_charts`. |
-| `status` | text CHECK | One of `success`, `partial`, `failed`. `partial` means some garment types were scraped but not all. Enforced as a check constraint. |
-| `rows_written` | integer | How many rows were written to `brand_size_charts` in this run. A run that reports `success` but wrote zero rows is suspicious and should alert. |
-| `error_message` | text nullable | If status is `failed` or `partial`, the error message or exception that caused it. Nullable because successful runs have no error. |
-| `started_at` | timestamp | When the scraper began processing this brand. |
-| `completed_at` | timestamp | When the scraper finished. The difference between `started_at` and `completed_at` gives scrape duration — useful for detecting when a brand's website is slowing down the scraper. |
-
-**Why this table feeds the freshness signal indirectly:** The confidence score's freshness signal reads `scraped_at` from `brand_size_charts`, not from `scrape_runs`. But `scrape_runs` tells you operationally why `scraped_at` might be stale — was the last scrape a failure? How long ago did it run? This is the difference between user-facing confidence data and internal operational monitoring.
-
----
-
-## 11. Cross-cutting decisions
+## 10. Cross-cutting decisions
 
 ### All primary keys are UUIDs
 
