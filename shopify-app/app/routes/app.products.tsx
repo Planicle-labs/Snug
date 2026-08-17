@@ -28,13 +28,13 @@ import { pushMappingsToKV } from "../lib/kv.server";
 // Standard Garment Categories
 export const GARMENT_TYPES = [
   { label: "T-shirt", value: "tshirt", description: "Everyday tees and knit tops" },
-  { label: "Shirt", value: "shirt", description: "Button-down and formal shirts" },
   { label: "Polo", value: "polo", description: "Collared knit polos" },
-  { label: "Sweatshirt", value: "sweatshirt", description: "Crewneck sweatshirts" },
-  { label: "Hoodie", value: "hoodie", description: "Hooded sweatshirts" },
-  { label: "Jacket", value: "jacket", description: "Outerwear and jackets" },
-  { label: "Kurta", value: "kurta", description: "Kurtas and ethnic tops" },
-  { label: "Top", value: "top", description: "Other tops & blouses" },
+];
+
+const FIT_TYPES = [
+  { label: "Slim", value: "slim" },
+  { label: "Regular", value: "regular" },
+  { label: "Oversized", value: "oversized" },
 ];
 
 export interface CatalogProduct {
@@ -273,10 +273,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (intent === "map-product") {
       const productId = formData.get("productId") as string;
       const garmentType = formData.get("garmentType") as string;
-      const chartOverrideId = (formData.get("chartOverrideId") as string) || null;
+      const fitType = (formData.get("fitType") as string) || "regular";
 
       if (!productId || !garmentType) {
         return { error: "Please select both a product and a garment category." };
+      }
+      if (!FIT_TYPES.some((fit) => fit.value === fitType)) {
+        return { error: "Choose slim, regular, or oversized fit." };
       }
 
       const [existing] = await dbClient
@@ -295,7 +298,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           .update(garmentMappingsTable)
           .set({
             garmentType,
-            chartOverrideId: chartOverrideId || null,
+            fitType,
             updatedAt: new Date(),
           })
           .where(eq(garmentMappingsTable.id, existing.id));
@@ -304,7 +307,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           orgId: org.id,
           shopifyProductId: productId,
           garmentType,
-          chartOverrideId: chartOverrideId || null,
+          fitType,
         });
       }
 
@@ -321,10 +324,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (intent === "bulk-map") {
       const productIdsRaw = formData.get("productIds") as string;
       const garmentType = formData.get("garmentType") as string;
-      const chartOverrideId = (formData.get("chartOverrideId") as string) || null;
+      const fitType = (formData.get("fitType") as string) || "regular";
 
       if (!productIdsRaw || !garmentType) {
         return { error: "Please select products and a garment category for bulk mapping." };
+      }
+      if (!FIT_TYPES.some((fit) => fit.value === fitType)) {
+        return { error: "Choose slim, regular, or oversized fit." };
       }
 
       let productIds: string[] = [];
@@ -355,7 +361,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             .update(garmentMappingsTable)
             .set({
               garmentType,
-              chartOverrideId: chartOverrideId || null,
+              fitType,
               updatedAt: new Date(),
             })
             .where(eq(garmentMappingsTable.id, existing.id));
@@ -364,7 +370,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             orgId: org.id,
             shopifyProductId: pid,
             garmentType,
-            chartOverrideId: chartOverrideId || null,
+            fitType,
           });
         }
       }
@@ -464,12 +470,12 @@ export default function ProductMappingPage() {
   // Modal State for Single Mapping Edit (Mapped Products)
   const [editModalProduct, setEditModalProduct] = useState<CatalogProduct | null>(null);
   const [selectedGarmentType, setSelectedGarmentType] = useState<string>("tshirt");
-  const [selectedChartOverride, setSelectedChartOverride] = useState<string>("");
+  const [selectedFitType, setSelectedFitType] = useState<string>("regular");
 
   // Modal State for Bulk Mapping
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [bulkGarmentType, setBulkGarmentType] = useState<string>("tshirt");
-  const [bulkChartOverride, setBulkChartOverride] = useState<string>("");
+  const [bulkFitType, setBulkFitType] = useState<string>("regular");
 
   // Modal State for Storefront Recommender Preview
   const [previewProduct, setPreviewProduct] = useState<CatalogProduct | null>(null);
@@ -508,7 +514,9 @@ export default function ProductMappingPage() {
       if (statusFilter === "unmapped" && mapping) return false;
       if (statusFilter === "needs_chart") {
         if (!mapping) return false;
-        const availableCharts = chartsByGarment[mapping.garmentType] || [];
+        const availableCharts = (chartsByGarment[mapping.garmentType] || []).filter(
+          (chart: any) => chart.fitType === mapping.fitType,
+        );
         if (availableCharts.length > 0) return false;
       }
 
@@ -558,7 +566,7 @@ export default function ProductMappingPage() {
     const existing = mappingMap.get(product.id);
     setEditModalProduct(product);
     setSelectedGarmentType(existing?.garmentType || "tshirt");
-    setSelectedChartOverride(existing?.chartOverrideId || "");
+    setSelectedFitType(existing?.fitType || "regular");
   }, [mappingMap]);
 
   // Submit Single Product Mapping
@@ -569,9 +577,7 @@ export default function ProductMappingPage() {
     formData.set("intent", "map-product");
     formData.set("productId", editModalProduct.id);
     formData.set("garmentType", selectedGarmentType);
-    if (selectedChartOverride) {
-      formData.set("chartOverrideId", selectedChartOverride);
-    }
+    formData.set("fitType", selectedFitType);
 
     // Optimistic local update
     setLocalMappings((prev) => {
@@ -582,7 +588,7 @@ export default function ProductMappingPage() {
           id: String(Date.now() + Math.random()),
           shopifyProductId: editModalProduct.id,
           garmentType: selectedGarmentType,
-          chartOverrideId: selectedChartOverride || null,
+          fitType: selectedFitType,
         },
       ];
     });
@@ -609,9 +615,7 @@ export default function ProductMappingPage() {
     formData.set("intent", "bulk-map");
     formData.set("productIds", JSON.stringify(selectedProductIds));
     formData.set("garmentType", bulkGarmentType);
-    if (bulkChartOverride) {
-      formData.set("chartOverrideId", bulkChartOverride);
-    }
+    formData.set("fitType", bulkFitType);
 
     // Optimistic update
     const selectedSet = new Set(selectedProductIds);
@@ -621,7 +625,7 @@ export default function ProductMappingPage() {
         id: String(Date.now() + Math.random()),
         shopifyProductId: pid,
         garmentType: bulkGarmentType,
-        chartOverrideId: bulkChartOverride || null,
+        fitType: bulkFitType,
       }));
       return [...remaining, ...added];
     });
@@ -994,16 +998,16 @@ export default function ProductMappingPage() {
                         {mappedProductsList.map((product) => {
                           const mapping = mappingMap.get(product.id);
                           const garmentLabel = garmentTypes.find((g) => g.value === mapping?.garmentType)?.label || mapping?.garmentType;
-                          const availableCharts = mapping ? (chartsByGarment[mapping.garmentType] || []) : [];
-                          const specificChart = mapping?.chartOverrideId
-                            ? (sizeCharts || []).find((c: any) => c.id === mapping.chartOverrideId)
-                            : null;
+                          const fitLabel = FIT_TYPES.find((fit) => fit.value === mapping?.fitType)?.label || mapping?.fitType;
+                          const availableCharts = mapping
+                            ? (chartsByGarment[mapping.garmentType] || []).filter((chart: any) => chart.fitType === mapping.fitType)
+                            : [];
 
                           let statusBadge = (
-                            <Badge tone="success">🟢 Ready</Badge>
+                            <Badge tone="success">Ready</Badge>
                           );
-                          if (availableCharts.length === 0 && !specificChart) {
-                            statusBadge = <Badge tone="attention">🟡 Needs Chart</Badge>;
+                          if (availableCharts.length === 0) {
+                            statusBadge = <Badge tone="attention">Needs Chart</Badge>;
                           }
 
                           return (
@@ -1050,9 +1054,7 @@ export default function ProductMappingPage() {
                                   </div>
                                   <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px", flexWrap: "wrap" }}>
                                     <Badge tone="info">{garmentLabel}</Badge>
-                                    {specificChart && (
-                                      <Badge>{specificChart.sizeLabel || "Custom Chart"}</Badge>
-                                    )}
+                                    {fitLabel && <Badge>{fitLabel}</Badge>}
                                   </div>
                                 </div>
                               </div>
@@ -1158,34 +1160,22 @@ export default function ProductMappingPage() {
                   value: g.value,
                 }))}
                 value={selectedGarmentType}
-                onChange={(val) => {
-                  setSelectedGarmentType(val);
-                  setSelectedChartOverride("");
-                }}
+                onChange={setSelectedGarmentType}
                 helpText="Select the clothing category for this product so Snug calculates body ease correctly."
               />
 
-              {/* Specific Size Chart Override Selector */}
-              <div>
-                <Select
-                  label="Specific Size Chart (Optional Override)"
-                  options={[
-                    { label: "Use Default Category Size Chart Guide", value: "" },
-                    ...(chartsByGarment[selectedGarmentType] || []).map((chart: any) => ({
-                      label: `${chart.sizeLabel} — (${chart.fitType} fit, Chest: ${chart.chestMinCm}-${chart.chestMaxCm}cm)`,
-                      value: chart.id,
-                    })),
-                  ]}
-                  value={selectedChartOverride}
-                  onChange={setSelectedChartOverride}
-                  helpText="Optionally pin this product to a specific size chart created in Size Charts."
-                />
-              </div>
+              <Select
+                label="Fit"
+                options={FIT_TYPES.map((fit) => ({ label: fit.label, value: fit.value }))}
+                value={selectedFitType}
+                onChange={setSelectedFitType}
+                helpText="Which of your size charts this product uses. Regular and oversized t-shirts are different charts."
+              />
 
-              {(chartsByGarment[selectedGarmentType] || []).length === 0 && (
+              {(chartsByGarment[selectedGarmentType] || []).filter((chart: any) => chart.fitType === selectedFitType).length === 0 && (
                 <Banner tone="warning">
                   <Text as="p" variant="bodySm">
-                    No size charts configured for <strong>{selectedGarmentType}</strong> yet. You can save this mapping now and add charts in <Button url="/app/size-charts" variant="plain">Size Charts</Button> later.
+                    No {selectedFitType} size chart for <strong>{selectedGarmentType}</strong> yet. You can save this mapping now and add charts in <Button url="/app/size-charts" variant="plain">Size Charts</Button> later.
                   </Text>
                 </Banner>
               )}
@@ -1225,31 +1215,22 @@ export default function ProductMappingPage() {
                   value: g.value,
                 }))}
                 value={bulkGarmentType}
-                onChange={(val) => {
-                  setBulkGarmentType(val);
-                  setBulkChartOverride("");
-                }}
+                onChange={setBulkGarmentType}
                 helpText="Select the garment type so Snug calculates body ease correctly."
               />
 
               <Select
-                label="Select Size Chart Guide"
-                options={[
-                  { label: "Use Default Category Size Guide", value: "" },
-                  ...(chartsByGarment[bulkGarmentType] || []).map((chart: any) => ({
-                    label: `${chart.sizeLabel} — (${chart.fitType} fit, Chest: ${chart.chestMinCm}-${chart.chestMaxCm}cm)`,
-                    value: chart.id,
-                  })),
-                ]}
-                value={bulkChartOverride}
-                onChange={setBulkChartOverride}
-                helpText="Choose a specific size chart created in Size Charts for these products."
+                label="Fit"
+                options={FIT_TYPES.map((fit) => ({ label: fit.label, value: fit.value }))}
+                value={bulkFitType}
+                onChange={setBulkFitType}
+                helpText="Which size chart these products use."
               />
 
-              {(chartsByGarment[bulkGarmentType] || []).length === 0 && (
+              {(chartsByGarment[bulkGarmentType] || []).filter((chart: any) => chart.fitType === bulkFitType).length === 0 && (
                 <Banner tone="warning">
                   <Text as="p" variant="bodySm">
-                    No custom size charts created for <strong>{bulkGarmentType}</strong> yet in <Button url="/app/size-charts" variant="plain">Size Charts</Button>. Default category rules will apply.
+                    No {bulkFitType} size chart for <strong>{bulkGarmentType}</strong> yet in <Button url="/app/size-charts" variant="plain">Size Charts</Button>.
                   </Text>
                 </Banner>
               )}

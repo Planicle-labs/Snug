@@ -63,7 +63,7 @@ const shopify = shopifyApp({
             api_key: String(newOrgRecord.apiKey),
             org_id: String(newOrgRecord.id),
             shop: String(newOrgRecord.shop),
-            plan_tier: (newOrgRecord.planTier || "trial") as "trial" | "paid",
+            plan_tier: (newOrgRecord.planTier || "trial") as "trial" | "starter" | "growth",
             trial_requests_remaining: Number(newOrgRecord.trialRequestsRemaining ?? 1000),
             widget_active: Boolean(newOrgRecord.widgetActive),
           });

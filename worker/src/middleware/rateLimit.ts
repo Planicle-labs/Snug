@@ -27,10 +27,6 @@ function isCounterResponse(value: unknown): value is CounterResponse {
  * A DO serializes this state transition for a single organization.
  */
 export async function consumeTrialQuota(env: Env, org: MerchantKVRecord): Promise<QuotaDecision> {
-  if (org.plan_tier === 'paid') {
-    return { allowed: true, usageRemaining: null, milestoneCrossed: false }
-  }
-
   const counter = env.USAGE_COUNTER.get(env.USAGE_COUNTER.idFromName(org.org_id))
   const response = await counter.fetch('http://usage-counter/action', {
     method: 'POST',

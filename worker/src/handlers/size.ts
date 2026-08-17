@@ -32,16 +32,17 @@ export async function handleSizePrediction(ctx: Context<AppEnv>) {
     return ctx.json({ error: 'Not Found', message: 'This product is not mapped to an active merchant size chart' }, 404)
   }
 
+  const refFit = body.ref_fit ?? 'regular'
   const [referenceRaw, targetRaw] = await Promise.all([
-    ctx.env.KV.get(`brand:${body.ref_brand}:${body.ref_garment}`, 'json'),
-    ctx.env.KV.get(`chart:${org.org_id}:${productMapping.garment_type}`, 'json'),
+    ctx.env.KV.get(`brand:${body.ref_brand}:${body.ref_garment}:${refFit}`, 'json'),
+    ctx.env.KV.get(`chart:${org.org_id}:${productMapping.garment_type}:${productMapping.fit_type}`, 'json'),
   ])
 
   if (referenceRaw === null) {
-    return ctx.json({ error: 'Not Found', message: `Reference brand size chart '${body.ref_brand}' for '${body.ref_garment}' is not supported` }, 404)
+    return ctx.json({ error: 'Not Found', message: `Reference brand size chart '${body.ref_brand}' for '${body.ref_garment}' (${refFit}) is not supported` }, 404)
   }
   if (targetRaw === null) {
-    return ctx.json({ error: 'Not Found', message: `Merchant size chart for '${productMapping.garment_type}' was not found` }, 404)
+    return ctx.json({ error: 'Not Found', message: `Merchant size chart for '${productMapping.garment_type}' (${productMapping.fit_type}) was not found` }, 404)
   }
 
   const referenceChart = parseReferenceChart(referenceRaw)
@@ -72,7 +73,7 @@ export async function handleSizePrediction(ctx: Context<AppEnv>) {
   }
 
   if (!quota.allowed) {
-    return ctx.json({ error: 'Too Many Requests', message: 'Trial quota exhausted. Please upgrade to a paid plan.' }, 429)
+    return ctx.json({ error: 'Too Many Requests', message: 'Monthly recommendation limit reached. Upgrade your plan to continue.' }, 429)
   }
 
   const checkpoint = checkpointTrialUsage(ctx.env, org.org_id, quota)

@@ -63,7 +63,7 @@ export async function handleSizeGuideLookup(ctx: Context<AppEnv>) {
   const mapping = mappings?.[productId]
   if (!mapping || !mapping.is_active) return ctx.json({ enabled: false }, 200)
 
-  const chartRaw = await ctx.env.KV.get(`chart:${ctx.var.org.org_id}:${mapping.garment_type}`, 'json')
+  const chartRaw = await ctx.env.KV.get(`chart:${ctx.var.org.org_id}:${mapping.garment_type}:${mapping.fit_type}`, 'json')
   const rows = publishedGuideRows(chartRaw)
   if (!rows) return ctx.json({ enabled: false }, 200)
 

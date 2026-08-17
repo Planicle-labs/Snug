@@ -16,7 +16,8 @@ CREATE TABLE "brand_requests" (
 	"brand_website" text,
 	"status" text DEFAULT 'pending' NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "brand_requests_status_check" CHECK ("brand_requests"."status" IN ('pending','in_progress','completed'))
 );
 --> statement-breakpoint
 CREATE TABLE "brand_size_charts" (
@@ -44,7 +45,6 @@ CREATE TABLE "conversion_events" (
 	"usage_log_id" uuid NOT NULL,
 	"visitor_id" text NOT NULL,
 	"shopify_product_id" text NOT NULL,
-	"billed" boolean DEFAULT false NOT NULL,
 	"billing_period" text NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
@@ -76,9 +76,11 @@ CREATE TABLE "garment_mappings" (
 	"org_id" uuid NOT NULL,
 	"shopify_product_id" text NOT NULL,
 	"garment_type" text NOT NULL,
-	"chart_override_id" uuid,
+	"fit_type" text NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "garment_mappings_garment_type_check" CHECK ("garment_mappings"."garment_type" IN ('tshirt','shirt','polo','sweatshirt','hoodie','jacket','kurta','top')),
+	CONSTRAINT "garment_mappings_fit_type_check" CHECK ("garment_mappings"."fit_type" IN ('slim','regular','oversized'))
 );
 --> statement-breakpoint
 CREATE TABLE "organizations" (
@@ -89,9 +91,6 @@ CREATE TABLE "organizations" (
 	"plan_tier" text DEFAULT 'trial' NOT NULL,
 	"trial_requests_remaining" integer DEFAULT 1000 NOT NULL,
 	"trial_exhausted_at" timestamp,
-	"base_fee_inr" integer,
-	"per_conversion_inr" integer,
-	"monthly_cap_inr" integer,
 	"shopify_charge_id" text,
 	"billing_period_start" timestamp,
 	"upgraded_at" timestamp,
@@ -100,7 +99,8 @@ CREATE TABLE "organizations" (
 	"installed_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "organizations_shop_unique" UNIQUE("shop"),
-	CONSTRAINT "organizations_api_key_unique" UNIQUE("api_key")
+	CONSTRAINT "organizations_api_key_unique" UNIQUE("api_key"),
+	CONSTRAINT "organizations_plan_tier_check" CHECK ("organizations"."plan_tier" IN ('trial','starter','growth'))
 );
 --> statement-breakpoint
 CREATE TABLE "session" (
@@ -151,13 +151,12 @@ CREATE TABLE "widget_configs" (
 ALTER TABLE "brand_requests" ADD CONSTRAINT "brand_requests_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "fit_size_charts" ADD CONSTRAINT "fit_size_charts_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "garment_mappings" ADD CONSTRAINT "garment_mappings_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "garment_mappings" ADD CONSTRAINT "garment_mappings_chart_override_id_fit_size_charts_id_fk" FOREIGN KEY ("chart_override_id") REFERENCES "public"."fit_size_charts"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "widget_configs" ADD CONSTRAINT "widget_configs_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "anthropometric_anchors_pk" ON "anthropometric_anchors" USING btree ("garment_type","size_label");--> statement-breakpoint
-CREATE UNIQUE INDEX "brand_size_charts_pk" ON "brand_size_charts" USING btree ("brand","garment_type","size_label");--> statement-breakpoint
+CREATE UNIQUE INDEX "brand_size_charts_pk" ON "brand_size_charts" USING btree ("brand","garment_type","fit_type","size_label");--> statement-breakpoint
 CREATE INDEX "conversion_events_org_billing_period_idx" ON "conversion_events" USING btree ("org_id","billing_period");--> statement-breakpoint
 CREATE INDEX "conversion_events_visitor_product_idx" ON "conversion_events" USING btree ("visitor_id","shopify_product_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "org_garment_size_unique" ON "fit_size_charts" USING btree ("org_id","garment_type","size_label");--> statement-breakpoint
+CREATE UNIQUE INDEX "org_garment_fit_size_unique" ON "fit_size_charts" USING btree ("org_id","garment_type","fit_type","size_label");--> statement-breakpoint
 CREATE UNIQUE INDEX "org_product_unique" ON "garment_mappings" USING btree ("org_id","shopify_product_id");--> statement-breakpoint
 CREATE INDEX "usage_logs_org_created_at_idx" ON "usage_logs" USING btree ("org_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "org_unique" ON "widget_configs" USING btree ("org_id");
