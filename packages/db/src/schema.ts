@@ -101,7 +101,7 @@ export const garmentMappings = pgTable('garment_mappings', {
   orgId: uuid('org_id').notNull().references(() => organizations.id),
   shopifyProductId: text('shopify_product_id').notNull(),
   garmentType: text('garment_type').notNull(),
-  fitType: text('fit_type').notNull(),
+  fitType: text('fit_type').default('regular').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => ({

@@ -76,7 +76,7 @@ CREATE TABLE "garment_mappings" (
 	"org_id" uuid NOT NULL,
 	"shopify_product_id" text NOT NULL,
 	"garment_type" text NOT NULL,
-	"fit_type" text NOT NULL,
+	"fit_type" text DEFAULT 'regular' NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "garment_mappings_garment_type_check" CHECK ("garment_mappings"."garment_type" IN ('tshirt','shirt','polo','sweatshirt','hoodie','jacket','kurta','top')),
