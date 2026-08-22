@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { parsePredictRequest, parseReferenceChart, parseTargetChart, sortChartByChestMid } from './validation'
+import { parsePredictRequest, parseProductMappings, parseReferenceChart, parseTargetChart, sortChartByChestMid } from './validation'
 
 it('rejects non-string prediction fields before a handler can call trim()', () => {
   expect(parsePredictRequest({
@@ -119,6 +119,18 @@ it('requires fit_type on reference brand rows and accepts relaxed fit', () => {
     length_min_cm: null,
     length_max_cm: null,
   }])
+})
+
+it('requires fit_type on product mappings', () => {
+  expect(parseProductMappings({
+    '123': { garment_type: 'tshirt', is_active: true },
+  })).toBeNull()
+
+  expect(parseProductMappings({
+    '123': { garment_type: 'tshirt', fit_type: 'oversized', is_active: true },
+  })).toEqual({
+    '123': { garment_type: 'tshirt', fit_type: 'oversized', is_active: true },
+  })
 })
 
 it('sortChartByChestMid orders by garment midpoint', () => {

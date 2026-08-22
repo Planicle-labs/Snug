@@ -101,6 +101,7 @@ erDiagram
     uuid org_id FK
     text shopify_product_id
     text garment_type
+    text fit_type
     timestamp created_at
     timestamp updated_at
   }
@@ -120,13 +121,12 @@ erDiagram
     timestamp created_at
   }
 
-  conversion_events { // recc to add to cart to order , recc to order , rec to add to cart && no order 
+  conversion_events {
     uuid id PK
     uuid org_id
     uuid usage_log_id
     text visitor_id
     text shopify_product_id
-    boolean billed
     text billing_period
     timestamp created_at
   }
@@ -141,7 +141,7 @@ erDiagram
     numeric length_max_cm
     numeric shoulder_min_cm
     numeric shoulder_max_cm
-    text fit_type // jsonb 
+    text fit_type 
     numeric ease_value_cm
     text ease_source
     timestamp scraped_at
@@ -285,9 +285,9 @@ erDiagram
   fit_size_charts {
     uuid id PK
     uuid org_id FK "Which merchant owns this row"
-    text garment_type "tshirt | shirt | polo | sweatshirt | hoodie | jacket | kurta | top. CHECK constraint"
+    text garment_type "v0 writes tshirt | polo. CHECK still allows shirt, sweatshirt, hoodie, jacket, kurta, top as reserved"
     text size_label "S | M | L | XL | 38 | 40 etc. Text because merchants use different size systems"
-    text fit_type "slim | regular | oversized. CHECK constraint. Algorithm uses this for cross-fit penalty"
+    text fit_type "slim | regular | oversized. CHECK constraint. Part of the unique identity — regular M and oversized M are different rows"
     numeric chest_min_cm "NOT NULL. Primary matching axis. Always centimetres — app converts on write"
     numeric chest_max_cm "NOT NULL. Algorithm uses midpoint of min+max as best estimate. Range width feeds confidence"
     numeric length_min_cm "Nullable. Secondary confidence signal for garments where length matters"
@@ -302,15 +302,17 @@ erDiagram
   }
 ```
 
-**Unique constraint:** `(org_id, garment_type, size_label)` — prevents duplicate size rows per merchant.
+**Unique constraint:** `(org_id, garment_type, fit_type, size_label)` — one row per size *inside a fit*. A merchant can store t-shirt regular M and t-shirt oversized M, and polo regular M, as three separate rows.
 
-**How it gets to the Worker:** `pushChartToKV()` reads this table and writes `chart:{org_id}:{garment_type}` to Cloudflare KV sorted by chest midpoint. The Worker reads from KV on every prediction — it never queries Postgres on the hot path.
+**How it gets to the Worker:** `pushChartToKV()` reads this table and writes `chart:{org_id}:{garment_type}:{fit_type}` to Cloudflare KV, sorted by chest midpoint. The Worker never queries Postgres on the hot path.
+
+There is no `chart_override_id`. A product picks its chart through `garment_mappings.garment_type` + `garment_mappings.fit_type`. Cross-fit recommendations do not need an override column — they run in the algorithm when the shopper's reference `fit_type` differs from this product's target `fit_type`.
 
 ---
 
 ## 6. garment_mappings
 
-> **Owner:** Merchant via the product mapping UI in the dashboard. Tells the widget which garment type a Shopify product belongs to.
+> **Owner:** Merchant via the product mapping UI in the dashboard. Tells the Worker which size chart a Shopify product uses.
 
 ```mermaid
 erDiagram
@@ -318,15 +320,26 @@ erDiagram
     uuid id PK
     uuid org_id FK "Which merchant owns this mapping"
     text shopify_product_id "Shopify GID e.g. gid://shopify/Product/8234567890. Stable — never changes even if product title changes"
-    text garment_type "tshirt | shirt | polo etc. CHECK constraint. Used to look up the right fit_size_charts rows"
+    text garment_type "tshirt | polo in v0. Combined with fit_type to select the chart"
+    text fit_type "slim | regular | oversized. Which of this org's charts this SKU uses"
     timestamp created_at
     timestamp updated_at
   }
 ```
 
-**Unique constraint:** `(org_id, shopify_product_id)` — one product maps to exactly one garment type per merchant.
+**Unique constraint:** `(org_id, shopify_product_id)` — one product maps to exactly one chart per merchant.
 
-**How it gets to the Worker:** `pushMappingsToKV()` writes `merchant:{org_id}:mappings` — a JSON object `{ shopify_product_id: { garment_type, is_active } }`. Widget sends the product ID, Worker does KV lookup → gets garment type → fetches chart from KV.
+**No `chart_override_id`.** That column pointed at a single size row and was the wrong grain. Fit lives here instead.
+
+**How it gets to the Worker:** `pushMappingsToKV()` writes `merchant:{org_id}:mappings`:
+
+```
+{ shopify_product_id: { garment_type, fit_type, is_active } }
+```
+
+Widget sends the product ID. Worker reads the mapping, then fetches `chart:{org_id}:{garment_type}:{fit_type}`.
+
+**Cross-fit still works.** Example: shopper is regular Uniqlo M, this product is mapped to `tshirt` + `oversized`. The engine compares reference fit vs target fit (Path A fitted vs Path B silhouette) and may return a dual recommendation. That is algorithm logic. It does not need a per-product override FK.
 
 ---
 
@@ -369,8 +382,7 @@ erDiagram
     uuid usage_log_id "Soft ref to usage_logs — the specific prediction that preceded this purchase"
     text visitor_id "Anonymous shopper token — the correlation key between prediction and Shopify order"
     text shopify_product_id "Which product was purchased"
-    boolean billed "Unused for invoices under subscription billing. Kept only if a later usage-overage experiment needs it. Starts false"
-    text billing_period "Format YYYY-MM e.g. 2026-08. Analytics grouping by calendar month — not an invoice key"
+    text billing_period "Format YYYY-MM e.g. 2026-08. Analytics grouping by calendar month"
     timestamp created_at
   }
 ```
@@ -379,7 +391,7 @@ erDiagram
 - `(org_id, billing_period)` — monthly conversion counts for the analytics dashboard.
 - `(visitor_id, shopify_product_id)` — deduplication: prevent double-counting if Shopify fires the webhook twice.
 
-**Not a billing table.** Shopify charges the merchant the flat `PLANS[plan_tier]` subscription. This table answers whether a prediction later became an order. It does not create invoices.
+**No `billed` column.** Subscription billing does not invoice per conversion. Shopify charges the flat `PLANS[plan_tier]` subscription. This table is analytics only.
 
 ---
 
@@ -390,23 +402,25 @@ erDiagram
 ```mermaid
 erDiagram
   brand_size_charts {
-    text brand "Lowercase slug e.g. snitch, bewakoof. Part of composite PK"
-    text garment_type "Same enum as fit_size_charts. CHECK constraint. Part of composite PK"
-    text size_label "As printed on the garment. Part of composite PK"
+    text brand "Lowercase slug e.g. snitch, bewakoof. Part of composite unique key"
+    text garment_type "Same enum as fit_size_charts. CHECK constraint. Part of composite unique key"
+    text size_label "As printed on the garment. Part of composite unique key"
     numeric chest_min_cm "NOT NULL. Always in cm — scraper converts from whatever unit the brand publishes"
     numeric chest_max_cm "NOT NULL"
     numeric length_min_cm "Nullable — not all brands publish length"
     numeric length_max_cm "Nullable"
     numeric shoulder_min_cm "Nullable"
     numeric shoulder_max_cm "Nullable"
-    text fit_type "slim | regular | oversized. CHECK constraint. Drives cross-fit penalty in algorithm"
+    text fit_type "slim | regular | oversized. CHECK constraint. Part of composite unique key. Drives cross-fit penalty in algorithm"
     numeric ease_value_cm "NOT NULL. How much extra fabric beyond body. Computed from scraped data + anthropometric_anchors"
     text ease_source "explicit | inferred | user_calibrated. CHECK constraint. Drives ease trust signal"
     timestamp scraped_at "When scraper last wrote this row. Feeds data freshness signal in confidence score"
   }
 ```
 
-**Composite unique PK:** `(brand, garment_type, size_label)` — scraper uses upsert: re-scraping updates `scraped_at` and measurements, never duplicates.
+**Composite unique key:** `(brand, garment_type, fit_type, size_label)` — Snitch regular t-shirt M and Snitch oversized t-shirt M are two rows. Scraper upserts on that key: re-scraping updates `scraped_at` and measurements, never duplicates.
+
+**KV:** `brand:{slug}:{garment_type}:{fit_type}` — same grain as merchant charts.
 
 **No FK to organizations.brand_slug** — scraper-owned table. Soft reference only: app validates `brand_slug` exists here, but DB does not enforce it with a constraint. This prevents a brand rename in the scraper from cascading into merchant records.
 
@@ -474,7 +488,7 @@ Shopper flow:
   3. Shopper adds to cart → buys
   4. Shopify fires order/paid webhook → Shopify app handler
   5. App matches order line items by shopify_product_id + visitor_id cookie
-  6. Writes conversion_events row { usage_log_id: ..., visitor_id: "abc123", billed: false }
+  6. Writes conversion_events row { usage_log_id: ..., visitor_id: "abc123", billing_period: "2026-08" }
   7. Sets usage_logs.led_to_conversion = true
 ```
 

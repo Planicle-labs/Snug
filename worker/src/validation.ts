@@ -1,5 +1,5 @@
 import type { FitIntent, FitType, RefSizeRow, TargetSizeRow } from './algorithm/types'
-import type { MerchantKVRecord, PredictRequestBody, ProductMappingKVRecord } from './types'
+import { isPlanTier, type MerchantKVRecord, type PredictRequestBody, type ProductMappingKVRecord } from './types'
 
 const FIT_TYPES = new Set<FitType>(['slim', 'regular', 'relaxed', 'oversized'])
 const FIT_INTENTS = new Set<FitIntent>(['true_silhouette', 'fitted'])
@@ -120,7 +120,7 @@ export function parseMerchantKVRecord(value: unknown): MerchantKVRecord | null {
 
   const orgId = nonEmptyString(value.org_id, 128)
   const shop = nonEmptyString(value.shop, 253)?.toLowerCase()
-  const planTier = value.plan_tier === 'trial' || value.plan_tier === 'paid' ? value.plan_tier : null
+  const planTier = isPlanTier(value.plan_tier) ? value.plan_tier : null
   const remaining = value.trial_requests_remaining
 
   if (!orgId || !shop || !planTier || typeof remaining !== 'number' || !Number.isSafeInteger(remaining) || remaining < 0 || typeof value.widget_active !== 'boolean') {
@@ -144,9 +144,11 @@ export function parsePredictRequest(value: unknown): PredictRequestBody | null {
   const refSize = nonEmptyString(value.ref_size, 24)
   const productId = nonEmptyString(value.shopify_product_id, 128)
   const fitIntent = parseFitIntent(value.fit_intent)
+  const refFit = value.ref_fit === undefined || value.ref_fit === null
+    ? undefined
+    : parseFitType(value.ref_fit)
 
-  // fit_intent is optional; only reject when present but invalid
-  if (fitIntent === null) return null
+  if (fitIntent === null || refFit === null) return null
 
   return refBrand && refGarment && refSize && productId
     ? {
@@ -154,6 +156,7 @@ export function parsePredictRequest(value: unknown): PredictRequestBody | null {
         ref_garment: refGarment.toLowerCase(),
         ref_size: refSize.toUpperCase(),
         shopify_product_id: productId,
+        ...(refFit !== undefined ? { ref_fit: refFit } : {}),
         ...(fitIntent !== undefined ? { fit_intent: fitIntent } : {}),
       }
     : null
@@ -166,8 +169,13 @@ export function parseProductMappings(value: unknown): Record<string, ProductMapp
   for (const [productId, mapping] of Object.entries(value)) {
     if (!isRecord(mapping)) return null
     const garmentType = nonEmptyString(mapping.garment_type, 64)
-    if (!garmentType || typeof mapping.is_active !== 'boolean') return null
-    mappings[productId] = { garment_type: garmentType.toLowerCase(), is_active: mapping.is_active }
+    const fitType = parseFitType(mapping.fit_type)
+    if (!garmentType || !fitType || typeof mapping.is_active !== 'boolean') return null
+    mappings[productId] = {
+      garment_type: garmentType.toLowerCase(),
+      fit_type: fitType,
+      is_active: mapping.is_active,
+    }
   }
   return mappings
 }

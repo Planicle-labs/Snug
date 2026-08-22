@@ -1,4 +1,6 @@
-const DEFAULT_TRIAL_LIMIT = 1000
+import { isPlanTier, PLAN_MONTHLY_REQUESTS, type PlanTier } from '../types'
+
+const DEFAULT_TRIAL_LIMIT = PLAN_MONTHLY_REQUESTS.trial
 const MAX_STARTING_ALLOWANCE = 1_000_000
 const MILESTONE_STEP = 100
 
@@ -9,8 +11,6 @@ export enum Actions {
   upgrade = 'upgrade',
   reset_billing_period = 'reset_billing_period',
 }
-
-type PlanTier = 'trial' | 'paid'
 
 interface UsageRequestBody {
   action: Actions | string
@@ -39,7 +39,7 @@ function parseRequestBody(value: unknown): UsageRequestBody | null {
     allowance === undefined || (typeof allowance === 'number' && Number.isSafeInteger(allowance) && allowance >= 0 && allowance <= MAX_STARTING_ALLOWANCE)
 
   if (!validAllowance(value.usage_remaining) || !validAllowance(value.initial_usage_remaining)) return null
-  if (value.plan_tier !== undefined && value.plan_tier !== 'trial' && value.plan_tier !== 'paid') return null
+  if (value.plan_tier !== undefined && !isPlanTier(value.plan_tier)) return null
 
   const usageRemaining = value.usage_remaining
   const initialUsageRemaining = value.initial_usage_remaining
@@ -116,7 +116,7 @@ export class UsageCounter {
     const row = this.sql.exec<{ usage_remaining: number }>(
       `UPDATE usage
        SET usage_remaining = usage_remaining - 1, updated_at = datetime('now')
-       WHERE org_id = ? AND plan_tier = 'trial' AND usage_remaining > 0
+       WHERE org_id = ? AND usage_remaining > 0
        RETURNING usage_remaining`,
       body.org_id,
     ).toArray()[0]
@@ -132,9 +132,9 @@ export class UsageCounter {
       }
 
       return Response.json({
-        allowed: existing.plan_tier === 'paid',
+        allowed: false,
         usage_remaining: existing.usage_remaining,
-        trial_exhausted: existing.plan_tier === 'trial' && existing.usage_remaining <= 0,
+        trial_exhausted: existing.usage_remaining <= 0,
         milestone_crossed: false,
         checkpoint_value: null,
       })
@@ -178,7 +178,7 @@ export class UsageCounter {
 
     return Response.json({
       initialized: true,
-      allowed: row.plan_tier === 'paid' || row.usage_remaining > 0,
+      allowed: row.usage_remaining > 0,
       usage_remaining: row.usage_remaining,
       monthly_conversions: row.monthly_conversions,
       plan_tier: row.plan_tier,
@@ -203,8 +203,8 @@ export class UsageCounter {
   }
 
   private upgrade(body: UsageRequestBody): Response {
-    const planTier = body.plan_tier ?? 'paid'
-    const usageRemaining = body.usage_remaining ?? 10_000
+    const planTier = body.plan_tier ?? 'growth'
+    const usageRemaining = body.usage_remaining ?? PLAN_MONTHLY_REQUESTS[planTier]
     this.sql.exec(
       `INSERT INTO usage (org_id, plan_tier, usage_remaining, updated_at)
        VALUES (?, ?, ?, datetime('now'))

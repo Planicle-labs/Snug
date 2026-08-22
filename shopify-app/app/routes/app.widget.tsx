@@ -134,7 +134,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         api_key: String(org.apiKey),
         org_id: String(org.id),
         shop: String(org.shop),
-        plan_tier: (org.planTier || "trial") as "trial" | "paid",
+        plan_tier: (org.planTier || "trial") as "trial" | "starter" | "growth",
         trial_requests_remaining: Number(org.trialRequestsRemaining ?? 1000),
         widget_active: true,
       });
@@ -154,7 +154,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         api_key: String(org.apiKey),
         org_id: String(org.id),
         shop: String(org.shop),
-        plan_tier: (org.planTier || "trial") as "trial" | "paid",
+        plan_tier: (org.planTier || "trial") as "trial" | "starter" | "growth",
         trial_requests_remaining: Number(org.trialRequestsRemaining ?? 1000),
         widget_active: false,
       });

@@ -25,19 +25,13 @@ export const organizations = pgTable('organizations', {
   id: uuid('id').primaryKey().defaultRandom(),
   shop: text('shop').notNull().unique(),
   brandSlug: text('brand_slug'),
-  //Does not include the not null flag as for a brief duration of time it will be null
-  //API key is generated programmatically during the OAuth callback after the row is created
+  // Nullable only for the brief window between org insert and afterAuth key write
   apiKey: text('api_key').unique(),
 
-  // Trial tracking
   planTier: text('plan_tier').default('trial').notNull(),
   trialRequestsRemaining: integer('trial_requests_remaining').default(1000).notNull(),
   trialExhaustedAt: timestamp('trial_exhausted_at'),
 
-  // Paid tier fields — all nullable, set on upgrade
-  baseFeeInr: integer('base_fee_inr'),
-  perConversionInr: integer('per_conversion_inr'),
-  monthlyCapInr: integer('monthly_cap_inr'),
   shopifyChargeId: text('shopify_charge_id'),
   billingPeriodStart: timestamp('billing_period_start'),
   upgradedAt: timestamp('upgraded_at'),
@@ -46,7 +40,12 @@ export const organizations = pgTable('organizations', {
   widgetActive: boolean('widget_active').default(false).notNull(),
   installedAt: timestamp('installed_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (table) => ({
+  planTierCheck: check(
+    'organizations_plan_tier_check',
+    sql`${table.planTier} IN ('trial','starter','growth')`
+  ),
+}));
 
 export const widgetConfigs = pgTable('widget_configs', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -78,18 +77,21 @@ export const fitSizeCharts = pgTable('fit_size_charts', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => ({
-  orgGarmentSizeUnique: uniqueIndex('org_garment_size_unique')
-    .on(table.orgId, table.garmentType, table.sizeLabel),
+  orgGarmentFitSizeUnique: uniqueIndex('org_garment_fit_size_unique')
+    .on(table.orgId, table.garmentType, table.fitType, table.sizeLabel),
 
-  garmentTypeCheck: check('garment_type_check',
+  garmentTypeCheck: check(
+    'garment_type_check',
     sql`${table.garmentType} IN ('tshirt','shirt','polo','sweatshirt','hoodie','jacket','kurta','top')`
   ),
 
-  fitTypeCheck: check('fit_type_check',
+  fitTypeCheck: check(
+    'fit_type_check',
     sql`${table.fitType} IN ('slim','regular','oversized')`
   ),
 
-  easeSourceCheck: check('ease_source_check',
+  easeSourceCheck: check(
+    'ease_source_check',
     sql`${table.easeSource} IN ('explicit','inferred','user_calibrated')`
   ),
 }));
@@ -99,12 +101,22 @@ export const garmentMappings = pgTable('garment_mappings', {
   orgId: uuid('org_id').notNull().references(() => organizations.id),
   shopifyProductId: text('shopify_product_id').notNull(),
   garmentType: text('garment_type').notNull(),
-  chartOverrideId: uuid('chart_override_id').references(() => fitSizeCharts.id),
+  fitType: text('fit_type').default('regular').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => ({
   orgProductUnique: uniqueIndex('org_product_unique')
     .on(table.orgId, table.shopifyProductId),
+
+  garmentTypeCheck: check(
+    'garment_mappings_garment_type_check',
+    sql`${table.garmentType} IN ('tshirt','shirt','polo','sweatshirt','hoodie','jacket','kurta','top')`
+  ),
+
+  fitTypeCheck: check(
+    'garment_mappings_fit_type_check',
+    sql`${table.fitType} IN ('slim','regular','oversized')`
+  ),
 }));
 
 export const brandRequests = pgTable('brand_requests', {
@@ -115,22 +127,23 @@ export const brandRequests = pgTable('brand_requests', {
   status: text('status').default('pending').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (table) => ({
+  statusCheck: check(
+    'brand_requests_status_check',
+    sql`${table.status} IN ('pending','in_progress','completed')`
+  ),
+}));
 
 export const usageLogs = pgTable(
   'usage_logs',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    // No FK — Worker uses restricted connection that cannot enforce
-    // referential integrity across tables
     orgId: uuid('org_id').notNull(),
     refBrand: text('ref_brand').notNull(),
     refGarment: text('ref_garment').notNull(),
     refSize: text('ref_size').notNull(),
     predictedSize: text('predicted_size').notNull(),
     confidence: integer('confidence').notNull(),
-    // confidence_label derived at query time:
-    // 75-100 = high, 45-74 = medium, below 45 = low
     isBoundaryCase: boolean('is_boundary_case').notNull(),
     responseMs: integer('response_ms').notNull(),
     visitorId: text('visitor_id'),
@@ -138,7 +151,6 @@ export const usageLogs = pgTable(
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (table) => ({
-    // Critical for cron COUNT queries — prevents full table scan per org
     orgCreatedAtIndex: index('usage_logs_org_created_at_idx').on(
       table.orgId,
       table.createdAt
@@ -150,13 +162,10 @@ export const conversionEvents = pgTable(
   'conversion_events',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    // No FK — Worker uses restricted connection
     orgId: uuid('org_id').notNull(),
     usageLogId: uuid('usage_log_id').notNull(),
     visitorId: text('visitor_id').notNull(),
     shopifyProductId: text('shopify_product_id').notNull(),
-    billed: boolean('billed').default(false).notNull(),
-    // Format: '2026-05' — used for grouping monthly billing reports
     billingPeriod: text('billing_period').notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
@@ -170,7 +179,7 @@ export const conversionEvents = pgTable(
       table.shopifyProductId
     ),
   })
-)
+);
 
 export const brandSizeCharts = pgTable(
   'brand_size_charts',
@@ -193,6 +202,7 @@ export const brandSizeCharts = pgTable(
     pk: uniqueIndex('brand_size_charts_pk').on(
       table.brand,
       table.garmentType,
+      table.fitType,
       table.sizeLabel
     ),
     garmentTypeCheck: check(
@@ -232,4 +242,3 @@ export const anthropometricAnchors = pgTable(
     ),
   })
 );
-

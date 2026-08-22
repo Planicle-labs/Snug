@@ -31,13 +31,7 @@ const GENDERS = [
 
 const GARMENT_TYPES = [
   { label: "T-shirt", value: "tshirt", description: "Everyday tees and knit tops" },
-  { label: "Shirt", value: "shirt", description: "Button-down and formal shirts" },
   { label: "Polo", value: "polo", description: "Collared knit polos" },
-  { label: "Sweatshirt", value: "sweatshirt", description: "Crewneck sweatshirts" },
-  { label: "Hoodie", value: "hoodie", description: "Hooded sweatshirts" },
-  { label: "Jacket", value: "jacket", description: "Outerwear and jackets" },
-  { label: "Kurta", value: "kurta", description: "Kurtas and long tops" },
-  { label: "Top", value: "top", description: "Other tops" },
 ] as const;
 
 const FIT_TYPES = [
@@ -384,7 +378,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           extraMeasurements: { guideGender: gender, showOnStorefront: false },
         })),
       );
-      await pushChartToKV(org.id, garmentType as string);
+      await pushChartToKV(org.id, garmentType as string, fitType as string);
       return { success: true, guideTitle: titleForGuide(gender, garmentType as string) };
     } catch {
       return { error: "We could not save this guide. Check that these sizes have not already been added." };
@@ -403,7 +397,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     if (chart) {
       await dbClient.delete(fitSizeCharts as any).where(eq((fitSizeCharts as any).id, chartId));
-      await pushChartToKV(chart.orgId, chart.garmentType);
+      await pushChartToKV(chart.orgId, chart.garmentType, chart.fitType);
     }
     return { deleted: true };
   }
@@ -411,18 +405,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (intent === "toggle-storefront-guide") {
     const gender = formData.get("gender");
     const garmentType = formData.get("garmentType");
+    const fitType = formData.get("fitType");
     const showOnStorefront = formData.get("showOnStorefront") === "true";
 
     if (
       (gender !== "men" && gender !== "women" && gender !== "unisex") ||
-      !GARMENT_TYPES.some((item) => item.value === garmentType)
+      !GARMENT_TYPES.some((item) => item.value === garmentType) ||
+      !FIT_TYPES.some((item) => item.value === fitType)
     ) return { error: "We could not find that size guide." };
 
     const [org] = await dbClient.select().from(organizations as any).where(eq((organizations as any).shop, session.shop)).limit(1);
     if (!org) return { error: "Organization not found. Please reinstall the app." };
 
     const guideRows = await dbClient.select().from(fitSizeCharts as any).where(
-      and(eq((fitSizeCharts as any).orgId, org.id), eq((fitSizeCharts as any).garmentType, garmentType)),
+      and(
+        eq((fitSizeCharts as any).orgId, org.id),
+        eq((fitSizeCharts as any).garmentType, garmentType),
+        eq((fitSizeCharts as any).fitType, fitType),
+      ),
     );
     const matchingRows = guideRows.filter((row: any) => guideGender(row.extraMeasurements) === gender);
     if (!matchingRows.length) return { error: "We could not find that size guide." };
@@ -433,7 +433,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         .set({ extraMeasurements: { ...existingMetadata, guideGender: gender, showOnStorefront }, updatedAt: new Date() })
         .where(eq((fitSizeCharts as any).id, row.id));
     }));
-    await pushChartToKV(org.id, garmentType as string);
+    const fits = [...new Set(matchingRows.map((row: any) => String(row.fitType)))];
+    await Promise.all(fits.map((fit) => pushChartToKV(org.id, garmentType as string, fit)));
     return { storefrontGuideUpdated: true, showOnStorefront, guideTitle: titleForGuide(gender, garmentType as string) };
   }
 
@@ -461,7 +462,7 @@ export default function SizeCharts() {
     const groups = new Map<string, typeof sizeCharts>();
     sizeCharts.forEach((chart: any) => {
       const chartGender = guideGender(chart.extraMeasurements);
-      const key = `${chartGender}:${chart.garmentType}`;
+      const key = `${chartGender}:${chart.garmentType}:${chart.fitType}`;
       groups.set(key, [...(groups.get(key) ?? []), chart]);
     });
     return [...groups.entries()].map(([key, charts]) => {
@@ -471,6 +472,7 @@ export default function SizeCharts() {
         charts: sortedCharts,
         gender: guideGender(sortedCharts[0].extraMeasurements),
         garmentType: sortedCharts[0].garmentType,
+        fitType: sortedCharts[0].fitType,
         showOnStorefront: charts.some((chart: any) => Boolean(chart.extraMeasurements?.showOnStorefront)),
       };
     });
@@ -483,6 +485,7 @@ export default function SizeCharts() {
     formData.append("intent", "toggle-storefront-guide");
     formData.append("gender", guide.gender);
     formData.append("garmentType", guide.garmentType);
+    formData.append("fitType", guide.fitType);
     formData.append("showOnStorefront", String(!guide.showOnStorefront));
     submit(formData, { method: "post" });
   }
@@ -699,7 +702,7 @@ export default function SizeCharts() {
                           <InlineStack align="space-between" blockAlign="center">
                             <BlockStack gap="050">
                               <InlineStack gap="200" blockAlign="center">
-                                <Text as="h3" variant="headingSm">{titleForGuide(guide.gender, guide.garmentType)}</Text>
+                                <Text as="h3" variant="headingSm">{titleForGuide(guide.gender, guide.garmentType)} · {guide.fitType}</Text>
                                 <Badge tone={guide.showOnStorefront ? "success" : undefined}>
                                   {guide.showOnStorefront ? "Shown on storefront" : "Saved"}
                                 </Badge>
@@ -731,6 +734,7 @@ export default function SizeCharts() {
                                 <input type="hidden" name="intent" value="toggle-storefront-guide" />
                                 <input type="hidden" name="gender" value={guide.gender} />
                                 <input type="hidden" name="garmentType" value={guide.garmentType} />
+                                <input type="hidden" name="fitType" value={guide.fitType} />
                                 <input type="hidden" name="showOnStorefront" value={String(!guide.showOnStorefront)} />
                                 <Button variant={guide.showOnStorefront ? "secondary" : "primary"} submit>
                                   {guide.showOnStorefront ? "Hide from storefront" : "Show on storefront"}

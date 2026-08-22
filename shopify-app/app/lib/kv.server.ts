@@ -1,15 +1,18 @@
 import db from "../db.server";
-import { fitSizeCharts, garmentMappings } from "@snug/db";
+import { fitSizeCharts, garmentMappings, type PlanTier } from "@snug/db";
 import { eq, and } from "drizzle-orm";
 
 const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const KV_NAMESPACE_ID = process.env.CLOUDFLARE_KV_NAMESPACE_ID;
 const API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 
+const ACTIVE_GARMENTS = ["tshirt", "polo"] as const;
+const FIT_TYPES = ["slim", "regular", "oversized"] as const;
+
 export interface MerchantKVPayload {
   org_id: string;
   shop: string;
-  plan_tier: "trial" | "paid";
+  plan_tier: PlanTier;
   trial_requests_remaining: number;
   widget_active: boolean;
   api_key: string;
@@ -67,7 +70,7 @@ export async function pushApiKeyToKV(payload: MerchantKVPayload) {
   return kvPut(key, payload);
 }
 
-export async function pushChartToKV(orgId: string, garmentType: string) {
+export async function pushChartToKV(orgId: string, garmentType: string, fitType: string) {
   const dbClient = db as any;
   const fitSizeChartsTable = fitSizeCharts as any;
 
@@ -77,11 +80,12 @@ export async function pushChartToKV(orgId: string, garmentType: string) {
     .where(
       and(
         eq(fitSizeChartsTable.orgId, orgId),
-        eq(fitSizeChartsTable.garmentType, garmentType)
+        eq(fitSizeChartsTable.garmentType, garmentType),
+        eq(fitSizeChartsTable.fitType, fitType)
       )
     );
 
-  const key = `chart:${orgId}:${garmentType}`;
+  const key = `chart:${orgId}:${garmentType}:${fitType}`;
 
   if (charts.length === 0) {
     return kvDelete(key);
@@ -125,12 +129,17 @@ export async function pushMappingsToKV(orgId: string) {
   const key = `merchant:${orgId}:mappings`;
   if (!mappings.length) return kvDelete(key);
 
-  const payload: Record<string, { garment_type: string; is_active: boolean }> = {};
+  const payload: Record<string, { garment_type: string; fit_type: string; is_active: boolean }> = {};
   for (const mapping of mappings) {
     const rawId = String(mapping.shopifyProductId);
     const cleanId = rawId.replace(/^gid:\/\/shopify\/Product\//, '');
-    payload[rawId] = { garment_type: mapping.garmentType, is_active: true };
-    payload[cleanId] = { garment_type: mapping.garmentType, is_active: true };
+    const record = {
+      garment_type: mapping.garmentType,
+      fit_type: mapping.fitType,
+      is_active: true,
+    };
+    payload[rawId] = record;
+    payload[cleanId] = record;
   }
   return kvPut(key, payload);
 }
@@ -146,10 +155,11 @@ export async function purgeMerchantFromKV(orgId: string, apiKey?: string | null,
   }
   deletePromises.push(kvDelete(`merchant:${orgId}:mappings`));
 
-  const COMMON_GARMENTS = ['tshirt', 'shirt', 'hoodie', 'jacket', 'pants', 'jeans', 'shorts', 'dress'];
-  COMMON_GARMENTS.forEach((g) => {
-    deletePromises.push(kvDelete(`chart:${orgId}:${g}`));
-  });
+  for (const garment of ACTIVE_GARMENTS) {
+    for (const fit of FIT_TYPES) {
+      deletePromises.push(kvDelete(`chart:${orgId}:${garment}:${fit}`));
+    }
+  }
 
   const results = await Promise.all(deletePromises);
   console.log(`[KV Purge] Purged KV records for org ${orgId}: ${results.filter(Boolean).length} keys deleted.`);

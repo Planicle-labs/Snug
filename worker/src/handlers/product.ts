@@ -25,6 +25,7 @@ export async function handleProductMappingLookup(ctx: Context<AppEnv>) {
     mapped: true,
     shopify_product_id: productId,
     garment_type: mapping.garment_type,
+    fit_type: mapping.fit_type,
     is_active: mapping.is_active,
   }, 200)
 }

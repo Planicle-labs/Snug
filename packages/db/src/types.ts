@@ -6,17 +6,23 @@ import type {
   brandSizeCharts,
   garmentMappings,
   anthropometricAnchors,
+  conversionEvents,
+  widgetConfigs,
+  brandRequests,
 } from './schema'
+import type { PlanTier } from './plans'
 
-// Inferred types from Drizzle schema
 export type Organization = InferSelectModel<typeof organizations>
 export type FitSizeChart = InferSelectModel<typeof fitSizeCharts>
 export type UsageLog = InferInsertModel<typeof usageLogs>
 export type BrandSizeChart = InferSelectModel<typeof brandSizeCharts>
 export type GarmentMapping = InferSelectModel<typeof garmentMappings>
 export type AnthropometricAnchor = InferSelectModel<typeof anthropometricAnchors>
+export type ConversionEvent = InferSelectModel<typeof conversionEvents>
+export type WidgetConfig = InferSelectModel<typeof widgetConfigs>
+export type BrandRequest = InferSelectModel<typeof brandRequests>
 
-// Shared enums
+/** v0 product writes are tshirt | polo. Other values are reserved in the CHECK. */
 export type GarmentType =
   | 'tshirt'
   | 'shirt'
@@ -27,7 +33,7 @@ export type GarmentType =
   | 'kurta'
   | 'top'
 
-export type PlanTier = 'trial' | 'paid'
+export type ActiveGarmentType = 'tshirt' | 'polo'
 
 export type FitType = 'slim' | 'regular' | 'oversized'
 
@@ -35,57 +41,19 @@ export type EaseSource = 'explicit' | 'inferred' | 'user_calibrated'
 
 export type ConfidenceLabel = 'high' | 'medium' | 'low'
 
-// Worker API request shape
-export interface PredictRequest {
-  ref_brand: string
-  ref_garment: GarmentType
-  ref_size: string
-  target_brand: string
-}
-
-// Worker API response shape
-export interface PredictResponse {
-  predicted_size: string
-  confidence: number
-  confidence_label: ConfidenceLabel
-  suggested_sizes: string[]
-  is_boundary_case: boolean
-  below_range: boolean
-  above_range: boolean
-  reasoning: {
-    body_anchor_cm: number
-    ref_garment_mid_cm: number
-    ref_ease_cm: number
-    ref_ease_source: EaseSource
-    ref_fit_type: FitType
-    target_fit_type: FitType
-    target_ease_cm: number
-    target_garment_equiv_cm: number
-    matched_range_min_cm: number
-    matched_range_max_cm: number
-    cross_fit_flag: boolean
-    cross_fit_penalty_applied: number
-  }
-  meta: {
-    ref_brand: string
-    ref_garment: string
-    ref_size: string
-    target_brand: string
-    ref_scraped_at: string
-    target_scraped_at: string
-  }
-}
-
-// KV record shapes — what the Worker reads from KV
 export interface MerchantKVRecord {
   org_id: string
-  plan_tier: 'trial' | 'paid'
+  shop: string
+  plan_tier: PlanTier
   widget_active: boolean
   api_key: string
   trial_requests_remaining: number
-  // Only present on paid tier
-  per_conversion_inr?: number
-  monthly_cap_inr?: number
+}
+
+export interface ProductMappingKVRecord {
+  garment_type: string
+  fit_type: FitType
+  is_active: boolean
 }
 
 export interface BrandSizeChartKVRecord {
