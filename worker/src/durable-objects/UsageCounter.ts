@@ -187,19 +187,21 @@ export class UsageCounter {
 
   private resetBillingPeriod(body: UsageRequestBody): Response {
     const targetUsage = body.usage_remaining ?? DEFAULT_TRIAL_LIMIT
+    const planTier = body.plan_tier ?? 'trial'
     this.sql.exec(
       `INSERT INTO usage (org_id, plan_tier, usage_remaining, monthly_conversions, billing_start, updated_at)
        VALUES (?, ?, ?, 0, datetime('now'), datetime('now'))
        ON CONFLICT(org_id) DO UPDATE SET
+         plan_tier = excluded.plan_tier,
          usage_remaining = excluded.usage_remaining,
          monthly_conversions = 0,
          billing_start = datetime('now'),
          updated_at = datetime('now')`,
       body.org_id,
-      body.plan_tier ?? 'trial',
+      planTier,
       targetUsage,
     )
-    return Response.json({ success: true, usage_remaining: targetUsage })
+    return Response.json({ success: true, plan_tier: planTier, usage_remaining: targetUsage })
   }
 
   private upgrade(body: UsageRequestBody): Response {

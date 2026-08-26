@@ -11,7 +11,8 @@ export interface UsageEvent {
   responseMs: number
 }
 
-export async function logUsageEvent(databaseUrl: string, event: UsageEvent): Promise<void> {
+export async function logUsageEvent(databaseUrl: string | undefined, event: UsageEvent): Promise<void> {
+  if (!databaseUrl?.trim()) return
   try {
     const sql = neon(databaseUrl)
     await sql`
@@ -28,7 +29,8 @@ export async function logUsageEvent(databaseUrl: string, event: UsageEvent): Pro
   }
 }
 
-export async function syncTrialUsage(databaseUrl: string, orgId: string, remaining: number): Promise<void> {
+export async function syncTrialUsage(databaseUrl: string | undefined, orgId: string, remaining: number): Promise<void> {
+  if (!databaseUrl?.trim()) return
   try {
     const sql = neon(databaseUrl)
     await sql`

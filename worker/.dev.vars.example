@@ -1,0 +1,6 @@
+# Neon Serverless PostgreSQL Connection (Local Worker Dev)
+DATABASE_URL="postgresql://user:password@endpoint-pooler.region.aws.neon.tech/neondb?sslmode=require"
+USAGE_SYNC_DATABASE_URL="postgresql://user:password@endpoint-pooler.region.aws.neon.tech/neondb?sslmode=require"
+
+# Internal Shared Secret for Admin Endpoints (/v1/admin/*)
+INTERNAL_ADMIN_SECRET="your-internal-admin-secret"

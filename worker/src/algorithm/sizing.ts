@@ -65,7 +65,7 @@ export function predictSize(input: SizingInput): SizingResult {
   // We have exact garment measurements from KV (constrained widget UI — no unknown brands).
   // Strip the standard ease for the reference fit type to get estimated body chest.
   const refGarmentMid = (refSizeRow.chest_min_cm + refSizeRow.chest_max_cm) / 2;
-  const bodyChest = refGarmentMid - TSHIRT_EASE[refSizeRow.fit_type];
+  const bodyChest = refGarmentMid - (TSHIRT_EASE[refSizeRow.fit_type] ?? 8);
 
   // ── Step 2: PATH A — Fitted Match (direct garment delta) ──────────────────
   // Compare reference garment midpoint against each target garment midpoint.
@@ -86,7 +86,7 @@ export function predictSize(input: SizingInput): SizingResult {
   // ── Step 3: PATH B — Silhouette Match (body anchor + target ease) ─────────
   // body chest + target fit's standard ease = the garment size that delivers
   // the full intended silhouette experience of the target brand.
-  const targetGarmentIntent = bodyChest + TSHIRT_EASE[targetFitType];
+  const targetGarmentIntent = bodyChest + (TSHIRT_EASE[targetFitType] ?? 8);
 
   let silhouetteRow: TargetSizeRow = targetChart[0];
   let silhouetteIndex = 0;
@@ -202,12 +202,13 @@ export function predictSize(input: SizingInput): SizingResult {
   const suggested_sizes: string[] = [primaryRow.size_label];
 
   if (minBoundaryDist <= 2 && targetChart.length > 1) {
-    is_boundary_case = true;
     // Add the adjacent size on the side where the boundary is closer
-    if (distToUpper < distToLower && primaryIndex + 1 < targetChart.length) {
+    if (distToUpper <= distToLower && primaryIndex + 1 < targetChart.length) {
       suggested_sizes.push(targetChart[primaryIndex + 1].size_label);
-    } else if (distToLower < distToUpper && primaryIndex - 1 >= 0) {
+      is_boundary_case = true;
+    } else if (distToLower <= distToUpper && primaryIndex - 1 >= 0) {
       suggested_sizes.unshift(targetChart[primaryIndex - 1].size_label);
+      is_boundary_case = true;
     }
   }
 

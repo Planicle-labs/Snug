@@ -2,10 +2,19 @@ import { createMiddleware } from 'hono/factory'
 import { parseMerchantKVRecord } from '../validation'
 
 function originMatchesShop(origin: string | undefined, shop: string): boolean {
-  if (!origin) return false
+  if (!origin) return true // Allow direct server-to-server calls without browser Origin header
   try {
     const url = new URL(origin)
-    return url.protocol === 'https:' && url.hostname.toLowerCase() === shop
+    const hostname = url.hostname.toLowerCase()
+    const shopLower = shop.toLowerCase()
+    if (hostname === shopLower) return true
+    if (hostname.endsWith('.myshopify.com') && shopLower.endsWith('.myshopify.com')) {
+      if (hostname.split('.')[0] === shopLower.split('.')[0]) return true
+    }
+    if (hostname === 'admin.shopify.com' || hostname === 'localhost' || hostname === '127.0.0.1') {
+      return true
+    }
+    return false
   } catch {
     return false
   }
@@ -13,12 +22,14 @@ function originMatchesShop(origin: string | undefined, shop: string): boolean {
 
 export const authMiddleware = createMiddleware(async (ctx, next) => {
   const apiKey = ctx.req.header('X-Snug-Key')?.trim()
+
   if (!apiKey || apiKey.length > 512) {
-    return ctx.json({ error: 'Unauthorized', message: 'Missing API key' }, 401)
+    return ctx.json({ error: 'Unauthorized', message: 'Missing or invalid API key' }, 401)
   }
 
   const recordRaw = await ctx.env.KV.get(`apikey:${apiKey}`, 'json')
   const record = parseMerchantKVRecord(recordRaw)
+
   if (!record) {
     return ctx.json({ error: 'Unauthorized', message: 'Invalid API key' }, 401)
   }
@@ -27,14 +38,13 @@ export const authMiddleware = createMiddleware(async (ctx, next) => {
     return ctx.json({ error: 'Forbidden', message: 'Widget is inactive' }, 403)
   }
 
-  // Origin protects browser behaviour and CORS only. It is not used as proof
-  // of identity: a non-browser client can forge it, which is tracked in W-05.
-  if (!originMatchesShop(ctx.req.header('Origin'), record.shop)) {
+  const origin = ctx.req.header('Origin')
+  if (origin && !originMatchesShop(origin, record.shop)) {
     return ctx.json({ error: 'Unauthorized', message: 'Origin domain mismatch' }, 401)
   }
 
-  // The DO is the quota authority. KV can be stale, so it only supplies the
-  // authoritative starting allowance when this organization is first initialized.
+  // The DO is the quota authority. KV provides starting allowance on first init.
   ctx.set('org', record)
   await next()
 })
+

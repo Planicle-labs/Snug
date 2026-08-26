@@ -15,14 +15,14 @@ function nonEmptyString(value: unknown, maxLength = MAX_TEXT_LENGTH): string | n
   return normalized.length > 0 && normalized.length <= maxLength ? normalized : null
 }
 
-function finiteNumber(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
+function positiveFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
 }
 
-/** Accept null/missing as null; reject non-finite numbers as invalid (undefined). */
-function nullableMeasurement(value: unknown): number | null | undefined {
+/** Accept null/missing as null; reject non-finite or non-positive numbers as invalid (undefined). */
+function nullablePositiveMeasurement(value: unknown): number | null | undefined {
   if (value === null || value === undefined) return null
-  return finiteNumber(value) ?? undefined
+  return positiveFiniteNumber(value) ?? undefined
 }
 
 function parseFitType(value: unknown): FitType | null {
@@ -57,12 +57,12 @@ function parseMeasurementFields(value: unknown): MeasurementFields | null {
   if (!isRecord(value)) return null
 
   const sizeLabel = nonEmptyString(value.size_label, 24)
-  const chestMin = finiteNumber(value.chest_min_cm)
-  const chestMax = finiteNumber(value.chest_max_cm)
-  const shoulderMin = nullableMeasurement(value.shoulder_min_cm)
-  const shoulderMax = nullableMeasurement(value.shoulder_max_cm)
-  const lengthMin = nullableMeasurement(value.length_min_cm)
-  const lengthMax = nullableMeasurement(value.length_max_cm)
+  const chestMin = positiveFiniteNumber(value.chest_min_cm)
+  const chestMax = positiveFiniteNumber(value.chest_max_cm)
+  const shoulderMin = nullablePositiveMeasurement(value.shoulder_min_cm)
+  const shoulderMax = nullablePositiveMeasurement(value.shoulder_max_cm)
+  const lengthMin = nullablePositiveMeasurement(value.length_min_cm)
+  const lengthMax = nullablePositiveMeasurement(value.length_max_cm)
 
   if (
     !sizeLabel || chestMin === null || chestMax === null ||
@@ -142,7 +142,7 @@ export function parsePredictRequest(value: unknown): PredictRequestBody | null {
   const refBrand = nonEmptyString(value.ref_brand)
   const refGarment = nonEmptyString(value.ref_garment)
   const refSize = nonEmptyString(value.ref_size, 24)
-  const productId = nonEmptyString(value.shopify_product_id, 128)
+  const productId = nonEmptyString(value.shopify_product_id, 128) ?? nonEmptyString(value.product_id, 128)
   const fitIntent = parseFitIntent(value.fit_intent)
   const refFit = value.ref_fit === undefined || value.ref_fit === null
     ? undefined

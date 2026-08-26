@@ -3,7 +3,7 @@ import { createMiddleware } from "hono/factory";
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Snug-Key, Origin",
+  "Access-Control-Allow-Headers": "Content-Type, X-Snug-Key, Origin, Accept",
   // maximum caching age for the preflight response (in seconds)
   "Access-Control-Max-Age": "86400",
 }
@@ -18,11 +18,13 @@ export const corsMiddleware = createMiddleware(async (ctx, next) => {
     */
     return new Response(null, { status: 204, headers: corsHeaders })
   }
-  await next();
-
-  /*after the request has finished prcoessing we attach the cors headers as the users browser receives
-  the POST response, it checks for Access-Control-Allow-Origin AGAIN on the POST response headers*/
-  Object.entries(corsHeaders).forEach(([key, value]) => {
-    ctx.res.headers.set(key, value)
-  })
+  try {
+    await next()
+  } finally {
+    if (ctx.res) {
+      Object.entries(corsHeaders).forEach(([key, value]) => {
+        ctx.res.headers.set(key, value)
+      })
+    }
+  }
 })

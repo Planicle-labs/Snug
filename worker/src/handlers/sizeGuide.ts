@@ -27,9 +27,9 @@ function publishedGuideRows(value: unknown): PublishedGuideRow[] | null {
     const shoulder = valueRow.shoulder_min_cm
     const gender = valueRow.guide_gender
 
-    if (typeof size !== 'string' || !size.trim() || typeof chest !== 'number' || !Number.isFinite(chest)) return null
-    if (length !== null && length !== undefined && (typeof length !== 'number' || !Number.isFinite(length))) return null
-    if (shoulder !== null && shoulder !== undefined && (typeof shoulder !== 'number' || !Number.isFinite(shoulder))) return null
+    if (typeof size !== 'string' || !size.trim() || typeof chest !== 'number' || !Number.isFinite(chest) || chest <= 0) return null
+    if (length !== null && length !== undefined && (typeof length !== 'number' || !Number.isFinite(length) || length <= 0)) return null
+    if (shoulder !== null && shoulder !== undefined && (typeof shoulder !== 'number' || !Number.isFinite(shoulder) || shoulder <= 0)) return null
     if (gender !== 'men' && gender !== 'women' && gender !== 'unisex') return null
 
     rows.push({
@@ -53,14 +53,22 @@ function guideTitle(gender: PublishedGuideRow['guide_gender'], garmentType: stri
 
 /** Returns published size-guide measurements for one mapped storefront product. */
 export async function handleSizeGuideLookup(ctx: Context<AppEnv>) {
-  const productId = ctx.req.param('product_id')?.trim()
-  if (!productId || productId.length > 128) {
+  const paramOrQuery = ctx.req.param('product_id') || ctx.req.param('id') || ctx.req.query('product_id') || ctx.req.query('shopify_product_id') || ctx.req.query('id') || ''
+  let rawId = paramOrQuery.trim()
+  try {
+    rawId = decodeURIComponent(rawId).trim()
+  } catch {
+    // Keep rawId if malformed percent encoding
+  }
+
+  if (!rawId || rawId.length > 128) {
     return ctx.json({ error: 'Bad Request', message: 'Missing or invalid product_id parameter' }, 400)
   }
 
   const mappingsRaw = await ctx.env.KV.get(`merchant:${ctx.var.org.org_id}:mappings`, 'json')
   const mappings = parseProductMappings(mappingsRaw)
-  const mapping = mappings?.[productId]
+  const cleanId = rawId.replace(/^gid:\/\/shopify\/Product\//, '')
+  const mapping = mappings?.[rawId] || mappings?.[cleanId] || mappings?.[`gid://shopify/Product/${cleanId}`]
   if (!mapping || !mapping.is_active) return ctx.json({ enabled: false }, 200)
 
   const chartRaw = await ctx.env.KV.get(`chart:${ctx.var.org.org_id}:${mapping.garment_type}:${mapping.fit_type}`, 'json')

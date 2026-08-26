@@ -27,7 +27,8 @@ export async function handleSizePrediction(ctx: Context<AppEnv>) {
     return ctx.json({ error: 'Unprocessable Entity', message: 'Merchant product mappings are malformed; refresh the configuration' }, 422)
   }
 
-  const productMapping = productMappings[body.shopify_product_id]
+  const cleanProductId = body.shopify_product_id.replace(/^gid:\/\/shopify\/Product\//, '')
+  const productMapping = productMappings[body.shopify_product_id] || productMappings[cleanProductId] || productMappings[`gid://shopify/Product/${cleanProductId}`]
   if (!productMapping || !productMapping.is_active) {
     return ctx.json({ error: 'Not Found', message: 'This product is not mapped to an active merchant size chart' }, 404)
   }

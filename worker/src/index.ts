@@ -7,6 +7,7 @@ import { handleSizePrediction } from './handlers/size'
 import { handleAdminUsageSync } from './handlers/adminUsage'
 import { handleProductMappingLookup } from './handlers/product'
 import { handleSizeGuideLookup } from './handlers/sizeGuide'
+import { handleWidgetConfigLookup } from './handlers/config'
 
 export type AppEnv = {
   Bindings: Env;
@@ -31,15 +32,24 @@ app.get('/health', (c) => {
 // Storefront Prediction Endpoint. It debits trial quota only after a prediction
 // has passed request and configuration validation.
 app.post('/v1/size', authMiddleware, handleSizePrediction)
+app.post('/v1/recommend', authMiddleware, handleSizePrediction)
 
 // Storefront Product Mapping Lookup (Requires Auth)
 app.get('/v1/product/:product_id', authMiddleware, handleProductMappingLookup)
 
 // Storefront Size Guide (Requires Auth)
 app.get('/v1/product/:product_id/size-guide', authMiddleware, handleSizeGuideLookup)
+app.get('/v1/size-guide', authMiddleware, handleSizeGuideLookup)
+
+// Storefront Widget Config Lookup (Requires Auth)
+app.get('/v1/config', authMiddleware, handleWidgetConfigLookup)
 
 // Internal Admin Usage Sync Endpoint (Protected by X-Internal-Secret)
 app.get('/v1/admin/usage', handleAdminUsageSync)
+
+app.notFound((ctx) => {
+  return ctx.json({ error: 'Not Found', message: 'Route not found' }, 404)
+})
 
 app.onError((error, ctx) => {
   console.error(JSON.stringify({ event: 'unhandled_request_error', path: ctx.req.path, message: error instanceof Error ? error.message : 'Unknown error' }))
