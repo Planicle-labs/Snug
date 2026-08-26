@@ -624,41 +624,20 @@ export default function BrandSetup() {
   const [searchQuery, setSearchQuery] = useState("");
   const [styleFilter, setStyleFilter] = useState<string>("all");
   const [showRequestModal, setShowRequestModal] = useState(false);
-  const [mockSuccessBanner, setMockSuccessBanner] = useState(false);
 
-  // TODO: Replace localStorage mock with production DB sync
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("snug_selected_brands");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setSelectedSlugs(parsed);
-          setViewMode("display");
-        }
-      }
-    } catch (e) {
-      console.warn("[BrandSetup] localStorage read warning:", e);
+    if (serverSelectedSlugs && serverSelectedSlugs.length > 0) {
+      setSelectedSlugs(serverSelectedSlugs);
+      setViewMode("display");
     }
-  }, []);
+  }, [serverSelectedSlugs]);
 
-  // TODO: Replace localStorage mock with production DB sync
-  const handleSaveBrandsMock = useCallback(
-    (e?: React.FormEvent) => {
-      if (e) e.preventDefault();
-      try {
-        localStorage.setItem(
-          "snug_selected_brands",
-          JSON.stringify(selectedSlugs),
-        );
-        setMockSuccessBanner(true);
-        setViewMode("display");
-      } catch (err) {
-        console.error("[BrandSetup] localStorage save error:", err);
-      }
-    },
-    [selectedSlugs],
-  );
+  useEffect(() => {
+    if (actionData?.success && actionData?.savedSlugs) {
+      setSelectedSlugs(actionData.savedSlugs);
+      setViewMode("display");
+    }
+  }, [actionData]);
 
   // Calculate Recommended Brand Slugs based on Questionnaire
   const recommendedSlugs = useMemo(() => {
@@ -744,7 +723,7 @@ export default function BrandSetup() {
               </Banner>
             )}
 
-            {(actionData?.success || mockSuccessBanner) && (
+            {actionData?.success && (
               <Banner tone="success" title="Brand baseline saved successfully">
                 <Text as="p" variant="bodyMd">
                   Connected{" "}
@@ -752,7 +731,7 @@ export default function BrandSetup() {
                     {actionData?.savedCount || selectedSlugs.length} reference
                     brands
                   </strong>{" "}
-                  to your store baseline (persisted locally).
+                  to your store baseline.
                 </Text>
               </Banner>
             )}
@@ -1066,7 +1045,7 @@ export default function BrandSetup() {
                     </InlineStack>
                     {[
                       { id: "all", label: "All Brands" },
-                      { id: "recommended", label: "✨ Recommended for You" },
+                      { id: "recommended", label: "Recommended for You" },
                       { id: "india", label: "India D2C" },
                       { id: "global", label: "Global Western" },
                       { id: "streetwear", label: "Streetwear" },
@@ -1201,7 +1180,7 @@ export default function BrandSetup() {
                 </div>
 
                 {/* Form Submit Action */}
-                <Form method="post" onSubmit={handleSaveBrandsMock}>
+                <Form method="post">
                   <input type="hidden" name="intent" value="save-brands" />
                   <input
                     type="hidden"

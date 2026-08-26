@@ -51,7 +51,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const org = orgs[0];
 
   // 2. On-demand Worker sync (fire-and-forget)
-  const workerUrl = process.env.WORKER_URL || "https://snug-worker.workers.dev";
+  const workerUrl = process.env.WORKER_URL || process.env.SNUG_WORKER_URL || "https://snug-worker.planicle-labs.workers.dev";
   const internalSecret = process.env.INTERNAL_ADMIN_SECRET;
   if (internalSecret) {
     fetch(`${workerUrl}/v1/admin/usage?shop=${encodeURIComponent(shop)}`, {
@@ -162,6 +162,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     .groupBy((usageLogs as any).predictedSize)
     .orderBy(desc(count()));
 
+  // 9. Average response time in ms
+  const [avgRes] = await dbClient
+    .select({ value: sql<number>`COALESCE(AVG(${(usageLogs as any).responseMs}), 0)` })
+    .from(usageLogs as any)
+    .where(eq((usageLogs as any).orgId, org.id));
+  const avgResponseMs = Math.round(Number(avgRes?.value || 0));
+
   // 10. Check if mock demo data should be populated
   const isMockData = totalRecommendations === 0;
 
@@ -235,8 +242,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     dailySeries: isMockData ? mockDailySeries : dailySeries,
     confidenceData: isMockData ? mockConfidenceData : confidenceData,
     garmentData: isMockData ? mockGarmentData : garmentData,
-    topBrands: isMockData ? mockTopBrands : topBrandsRes.map((b: any) => ({ brand: b.brand, count: Number(b.count) })),
-    sizeDistribution: isMockData ? mockSizeDistribution : sizeDistRes.map((s: any) => ({ size: s.size, count: Number(s.count) })),
+    topBrands: isMockData ? mockTopBrands : topBrandsRes.map((b: any) => ({ brand: String(b.brand), count: Number(b.count) })),
+    sizeDistribution: isMockData ? mockSizeDistribution : sizeDistRes.map((s: any) => ({ size: String(s.size), count: Number(s.count) })),
   };
 };
 
@@ -542,7 +549,7 @@ export default function AnalyticsDashboard() {
           >
             {data.topBrands.length > 0 ? (
               <BlockStack gap="200">
-                {data.topBrands.map((b, i) => {
+                {data.topBrands.map((b: { brand: string; count: number }, i: number) => {
                   const pct = data.totalRecommendations > 0
                     ? Math.round((b.count / data.totalRecommendations) * 100)
                     : 0;
@@ -582,7 +589,7 @@ export default function AnalyticsDashboard() {
           >
             {data.sizeDistribution.length > 0 ? (
               <BlockStack gap="200">
-                {data.sizeDistribution.map((item, i) => {
+                {data.sizeDistribution.map((item: { size: string; count: number }, i: number) => {
                   const pct = data.totalRecommendations > 0
                     ? Math.round((item.count / data.totalRecommendations) * 100)
                     : 0;

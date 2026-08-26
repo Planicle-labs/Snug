@@ -15,6 +15,7 @@ scraper/dist/
 # Cloudflare
 .wrangler/
 .dev.vars
+!.dev.vars.example
 
 # Drizzle migrations (generated locally, committed per workspace)
 # shopify-app/drizzle/  # uncomment if you want to ignore migrations

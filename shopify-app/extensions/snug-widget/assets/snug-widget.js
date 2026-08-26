@@ -1,1 +1,556 @@
-(function(){'use strict';var BRANDS=[{v:'nike',l:'Nike'},{v:'adidas',l:'Adidas'},{v:'zara',l:'Zara'},{v:'h_m',l:'H&M'},{v:'uniqlo',l:'Uniqlo'},{v:'levi',l:"Levi's"},{v:'gap',l:'Gap'},{v:'lululemon',l:'Lululemon'},{v:'under_armour',l:'Under Armour'},{v:'ralph_lauren',l:'Ralph Lauren'}];var GARMENTS=[{v:'tshirt',l:'T-Shirt / Top'},{v:'shirt',l:'Button-Down Shirt'},{v:'hoodie',l:'Hoodie / Sweatshirt'},{v:'jacket',l:'Jacket / Coat'},{v:'pants',l:'Pants / Trousers'},{v:'jeans',l:'Jeans'},{v:'shorts',l:'Shorts'},{v:'dress',l:'Dress'}];var SIZES=['XS','S','M','L','XL','XXL','3XL'];function initSnugWidget(){var rootEl=document.getElementById('snug-widget-root');if(!rootEl)return;var productId=rootEl.getAttribute('data-product-id');var shopDomain=rootEl.getAttribute('data-shop-domain');var apiKey=rootEl.getAttribute('data-api-key');var workerUrl=(rootEl.getAttribute('data-worker-url')||'https://snug-worker.workers.dev').replace(/\/$/,'');var triggerBtn=rootEl.querySelector('.snug-trigger-btn');if(!triggerBtn||!productId)return;var mappedGarmentType='tshirt';var cleanProductId=productId.replace(/^gid:\/\/shopify\/Product\//,'');checkProductMapping();function checkProductMapping(){var headers={'Accept':'application/json'};if(apiKey)headers['X-Snug-Key']=apiKey;fetch(workerUrl+'/v1/product/'+encodeURIComponent(cleanProductId),{headers:headers}).then(function(res){return res.ok?res.json():{mapped:false};}).then(function(data){if(data&&data.mapped&&data.is_active!==false){if(data.garment_type)mappedGarmentType=data.garment_type;}showWidgetButton();}).catch(showWidgetButton);}function showWidgetButton(){if(triggerBtn)triggerBtn.style.display='inline-flex';}var modalOverlay=document.getElementById('snug-modal-overlay');if(!modalOverlay){modalOverlay=document.createElement('div');modalOverlay.id='snug-modal-overlay';modalOverlay.className='snug-modal-overlay';modalOverlay.innerHTML=buildModalMarkup();document.body.appendChild(modalOverlay);}var closeBtn=modalOverlay.querySelector('.snug-modal-close');var fitForm=modalOverlay.querySelector('#snug-fit-form');var resultArea=modalOverlay.querySelector('#snug-result-area');function buildModalMarkup(){var brandOpts='<option value="">Select brand...</option>'+BRANDS.map(function(b){return'<option value="'+b.v+'">'+b.l+'</option>';}).join('');var garmentOpts=GARMENTS.map(function(g){return'<option value="'+g.v+'">'+g.l+'</option>';}).join('');var sizeOpts='<option value="">Select size...</option>'+SIZES.map(function(s){return'<option value="'+s+'">'+s+'</option>';}).join('');return'<div class="snug-modal-content"><button type="button" class="snug-modal-close" aria-label="Close">&times;</button><div class="snug-modal-header"><h3 class="snug-modal-title">Find Your Perfect Fit</h3><p class="snug-modal-subtitle">Tell us what fits you best in other brands</p></div><form id="snug-fit-form"><div class="snug-form-group"><label class="snug-label" for="snug-ref-brand">Brand You Own</label><select id="snug-ref-brand" class="snug-select" required>'+brandOpts+'</select></div><div class="snug-form-group"><label class="snug-label" for="snug-ref-garment">Garment Type</label><select id="snug-ref-garment" class="snug-select" required>'+garmentOpts+'</select></div><div class="snug-form-group"><label class="snug-label" for="snug-ref-size">Your Size</label><select id="snug-ref-size" class="snug-select" required>'+sizeOpts+'</select></div><button type="submit" class="snug-submit-btn">Calculate My Size</button></form><div id="snug-result-area"></div></div>';}function openModal(){var gSelect=modalOverlay.querySelector('#snug-ref-garment');if(gSelect&&mappedGarmentType)gSelect.value=mappedGarmentType;modalOverlay.classList.add('snug-active');}function closeModal(){modalOverlay.classList.remove('snug-active');}triggerBtn.addEventListener('click',openModal);if(closeBtn)closeBtn.addEventListener('click',closeModal);modalOverlay.addEventListener('click',function(e){if(e.target===modalOverlay)closeModal();});if(fitForm){fitForm.addEventListener('submit',function(e){e.preventDefault();var refBrand=modalOverlay.querySelector('#snug-ref-brand').value;var refGarment=modalOverlay.querySelector('#snug-ref-garment').value;var refSize=modalOverlay.querySelector('#snug-ref-size').value;if(!refBrand||!refGarment||!refSize)return;renderLoading();var headers={'Content-Type':'application/json','Accept':'application/json'};if(apiKey)headers['X-Snug-Key']=apiKey;fetch(workerUrl+'/v1/size',{method:'POST',headers:headers,body:JSON.stringify({ref_brand:refBrand,ref_garment:refGarment,ref_size:refSize,shopify_product_id:cleanProductId})}).then(function(res){if(res.status===429)throw{message:'Monthly recommendation limit reached for this store.'};if(res.status===404)throw{message:'No size chart matching the selected reference brand was found.'};if(!res.ok)throw{message:'Could not calculate size recommendation.'};return res.json();}).then(renderResult).catch(function(err){if(err&&err.message){renderError(err.message);}else{renderResult({predicted_size:refSize,confidence:85,confidence_label:'high',is_boundary_case:false,suggested_sizes:[refSize]});}});});}function renderLoading(){resultArea.innerHTML='<div style="text-align:center; padding: 24px 12px;"><div class="snug-loading-spinner"></div><p style="font-size:13px; font-weight:600; color:#374151; margin-top:12px;">Calculating fit recommendation...</p></div>';}function renderError(msg){resultArea.innerHTML='<div class="snug-error-card"><div class="snug-error-title">Notice</div><div class="snug-error-desc">'+esc(msg)+'</div></div>';}function renderResult(data){var isBoundary=data.is_boundary_case===true||(data.suggested_sizes&&data.suggested_sizes.length>1);var confLabel=(data.confidence_label||'high').toLowerCase();var confText=confLabel.charAt(0).toUpperCase()+confLabel.slice(1);if(isBoundary){var sizes=data.suggested_sizes||[data.predicted_size||'M',data.adjacent_size||'L'];var sSnug=sizes[0]||'M';var sRelaxed=sizes[1]||'L';resultArea.innerHTML='<div class="snug-result-card"><div class="snug-boundary-heading">You sit right between two sizes!</div><div class="snug-boundary-subtext">Choose your preferred fit style:</div><div class="snug-boundary-container" id="snug-boundary-selector"><div class="snug-boundary-option snug-selected" data-fit="snug"><div class="snug-fit-size">'+esc(sSnug)+'</div><div class="snug-fit-type">Snug Fit</div></div><div class="snug-boundary-option" data-fit="relaxed"><div class="snug-fit-size">'+esc(sRelaxed)+'</div><div class="snug-fit-type">Relaxed Fit</div></div></div><div class="snug-fit-guidance" id="snug-fit-guidance">Select <strong>'+esc(sSnug)+'</strong> for snug fit or <strong>'+esc(sRelaxed)+'</strong> for relaxed fit.</div><div><span class="snug-confidence-badge snug-confidence-'+confLabel+'">● '+esc(confText)+' Confidence</span></div></div>';var opts=resultArea.querySelectorAll('.snug-boundary-option');var guidance=resultArea.querySelector('#snug-fit-guidance');for(var i=0;i<opts.length;i++){opts[i].addEventListener('click',function(){for(var j=0;j<opts.length;j++)opts[j].classList.remove('snug-selected');this.classList.add('snug-selected');var isSnug=this.getAttribute('data-fit')==='snug';if(guidance){guidance.innerHTML=isSnug?'Selected <strong>'+esc(sSnug)+'</strong> for a snug, form-fitting look.':'Selected <strong>'+esc(sRelaxed)+'</strong> for a relaxed, comfortable fit.';}});}}else{var size=data.predicted_size||'M';resultArea.innerHTML='<div class="snug-result-card"><p style="font-size: 13px; font-weight: 600; color: #6b7280; margin: 0;">Recommended Size for You</p><div class="snug-size-badge">'+esc(size)+'</div>'+(data.reasoning?'<p style="font-size:12px; color:#4b5563; margin: 0 0 8px 0;">'+esc(data.reasoning)+'</p>':'')+'<div><span class="snug-confidence-badge snug-confidence-'+confLabel+'">● '+esc(confText)+' Confidence Match</span></div></div>';}}function esc(str){if(!str)return'';return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',initSnugWidget);}else{initSnugWidget();}})();
+(function () {
+  'use strict';
+
+  var BRANDS = [
+    { v: 'snitch', l: 'Snitch' },
+    { v: 'bewakoof', l: 'Bewakoof' },
+    { v: 'zara', l: 'Zara' },
+    { v: 'hm', l: 'H&M' },
+    { v: 'levis', l: "Levi's" },
+    { v: 'nike', l: 'Nike' },
+    { v: 'uniqlo', l: 'Uniqlo' },
+    { v: 'roadster', l: 'Roadster' },
+    { v: 'adidas', l: 'Adidas' },
+    { v: 'gap', l: 'Gap' },
+    { v: 'lululemon', l: 'Lululemon' },
+    { v: 'under_armour', l: 'Under Armour' },
+    { v: 'ralph_lauren', l: 'Ralph Lauren' }
+  ];
+
+  var GARMENTS = [
+    { v: 'tshirt', l: 'T-Shirt / Top' },
+    { v: 'shirt', l: 'Button-Down Shirt' },
+    { v: 'polo', l: 'Polo Shirt' },
+    { v: 'hoodie', l: 'Hoodie / Sweatshirt' },
+    { v: 'jacket', l: 'Jacket / Coat' },
+    { v: 'pants', l: 'Pants / Trousers' },
+    { v: 'jeans', l: 'Jeans' },
+    { v: 'shorts', l: 'Shorts' }
+  ];
+
+  var SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'];
+
+  function initSnugWidget() {
+    var rootEls = document.querySelectorAll('.snug-widget-wrapper');
+    if (!rootEls || !rootEls.length) {
+      var singleRoot = document.getElementById('snug-widget-root');
+      if (singleRoot) rootEls = [singleRoot];
+      else return;
+    }
+
+    for (var r = 0; r < rootEls.length; r++) {
+      setupWidgetInstance(rootEls[r]);
+    }
+  }
+
+  function setupWidgetInstance(rootEl) {
+    if (!rootEl || rootEl.hasAttribute('data-snug-initialized')) return;
+    rootEl.setAttribute('data-snug-initialized', 'true');
+
+    var productId = rootEl.getAttribute('data-product-id');
+    if (!productId || productId === 'null' || productId === 'undefined') {
+      if (window.ShopifyAnalytics && window.ShopifyAnalytics.meta && window.ShopifyAnalytics.meta.product) {
+        productId = String(window.ShopifyAnalytics.meta.product.id);
+      } else {
+        var hiddenInput = document.querySelector('form[action*="/cart/add"] input[name="product-id"]');
+        if (hiddenInput && hiddenInput.value) {
+          productId = String(hiddenInput.value);
+        }
+      }
+    }
+
+    var shopDomain = rootEl.getAttribute('data-shop-domain') || window.location.hostname;
+    var apiKey = rootEl.getAttribute('data-api-key');
+    var workerUrl = (rootEl.getAttribute('data-worker-url') || 'https://snug-worker.planicle-labs.workers.dev').replace(/\/$/, '');
+    var triggerBtn = rootEl.querySelector('.snug-trigger-btn');
+
+    var widgetConfig = {
+      position: 'below_add_to_cart',
+      button_text: 'Find Your Perfect Fit',
+      button_color: '#008060',
+      button_text_color: '#ffffff',
+      modal_position: 'center',
+      show_confidence: true,
+      show_reasoning: true
+    };
+
+    var mappedGarmentType = 'tshirt';
+    var cleanProductId = productId ? String(productId).replace(/^gid:\/\/shopify\/Product\//, '') : '';
+    var lastFocusedElement = null;
+
+    fetchConfigAndMapping();
+
+    function fetchConfigAndMapping() {
+      var headers = { 'Accept': 'application/json' };
+      if (apiKey) headers['X-Snug-Key'] = apiKey;
+
+      var configPromise = fetch(workerUrl + '/v1/config', { headers: headers })
+        .then(function (res) { return res.ok ? res.json() : null; })
+        .catch(function () { return null; });
+
+      var mappingPromise = cleanProductId
+        ? fetch(workerUrl + '/v1/product/' + encodeURIComponent(cleanProductId), { headers: headers })
+            .then(function (res) { return res.ok ? res.json() : { mapped: false }; })
+            .catch(function () { return { mapped: false }; })
+        : Promise.resolve({ mapped: true });
+
+      Promise.all([configPromise, mappingPromise]).then(function (results) {
+        var remoteConfig = results[0];
+        var mappingData = results[1];
+
+        if (remoteConfig) {
+          widgetConfig = Object.assign(widgetConfig, remoteConfig);
+        }
+
+        // If product was explicitly looked up and is unmapped or inactive, do not display button
+        if (cleanProductId && mappingData && (mappingData.mapped === false || mappingData.is_active === false)) {
+          if (triggerBtn) triggerBtn.style.display = 'none';
+          return;
+        }
+
+        if (mappingData && mappingData.mapped && mappingData.is_active !== false) {
+          if (mappingData.garment_type) mappedGarmentType = mappingData.garment_type;
+        }
+
+        applyWidgetStyles();
+        relocateWidget(rootEl, widgetConfig.position);
+        showWidgetButton();
+        observeThemeChanges(rootEl, widgetConfig.position);
+      }).catch(function () {
+        // Fallback for offline or connection failure when product mapping unknown
+        applyWidgetStyles();
+        relocateWidget(rootEl, widgetConfig.position);
+        showWidgetButton();
+        observeThemeChanges(rootEl, widgetConfig.position);
+      });
+    }
+
+    function formatColor(color, fallback) {
+      if (!color) return fallback || '';
+      var trimmed = String(color).trim();
+      if (!trimmed.startsWith('#') && /^[0-9a-fA-F]{3,6}$/.test(trimmed)) {
+        return '#' + trimmed;
+      }
+      return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(trimmed) ? trimmed : (fallback || '');
+    }
+
+    function applyWidgetStyles() {
+      if (!triggerBtn) return;
+      var bg = formatColor(widgetConfig.button_color, '#008060');
+      var textCol = formatColor(widgetConfig.button_text_color, '#ffffff');
+      triggerBtn.style.backgroundColor = bg;
+      triggerBtn.style.color = textCol;
+
+      var span = triggerBtn.querySelector('.snug-btn-label') || triggerBtn.querySelector('span');
+      if (span && widgetConfig.button_text) {
+        span.textContent = widgetConfig.button_text;
+      }
+    }
+
+    function relocateWidget(el, position) {
+      if (!position || position === 'as_placed' || !el) return;
+
+      var selectorsMap = {
+        below_size_selector: [
+          '.product-form__input--variant-picker',
+          '.product-form__input--pill',
+          'variant-selects',
+          'variant-radios',
+          '[data-option-selector]',
+          '.variant-picker',
+          '.product__variants',
+          '.product-form__variants',
+          '.product-variant-selector',
+          'fieldset.product-form__input',
+          '.product-form__input'
+        ],
+        below_add_to_cart: [
+          '.product-form__buttons',
+          '.product-form__submit',
+          'button[name="add"]',
+          '.shopify-payment-button',
+          '.product-form__cart-submit',
+          '.product-form',
+          'form[action*="/cart/add"]'
+        ],
+        below_price: [
+          '.price',
+          '.product__price',
+          '.product-price',
+          '[data-product-price]',
+          '.price--large',
+          '.price__regular'
+        ]
+      };
+
+      var candidates = selectorsMap[position] || [];
+
+      for (var i = 0; i < candidates.length; i++) {
+        var targetNode = document.querySelector(candidates[i]);
+        if (targetNode) {
+          var container = targetNode.closest('.product-form__buttons') ||
+                          targetNode.closest('.product-form') ||
+                          targetNode.closest('form[action*="/cart/add"]') ||
+                          targetNode;
+          if (container && container.parentNode && container !== el && !container.contains(el)) {
+            container.parentNode.insertBefore(el, container.nextSibling);
+            return;
+          }
+        }
+      }
+
+      // Fallback: If no match from candidates, find any product form or main product area
+      var generalForm = document.querySelector('.product-form, form[action*="/cart/add"], .product__info-container, .product-single__meta');
+      if (generalForm && generalForm.parentNode && generalForm !== el && !generalForm.contains(el)) {
+        generalForm.parentNode.insertBefore(el, generalForm.nextSibling);
+      }
+    }
+
+    function observeThemeChanges(el, position) {
+      if (!position || position === 'as_placed' || !window.MutationObserver) return;
+
+      var debounceTimer = null;
+      var observer = new MutationObserver(function () {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(function () {
+          if (!document.body.contains(el)) return;
+          relocateWidget(el, position);
+        }, 150);
+      });
+
+      var formContainer = document.querySelector('.product-form, form[action*="/cart/add"], .product__info-container, main');
+      if (formContainer) {
+        observer.observe(formContainer, { childList: true, subtree: false });
+      }
+
+      // Also listen to Shopify theme variant change events
+      document.addEventListener('variant:change', function () {
+        setTimeout(function () { relocateWidget(el, position); }, 50);
+      });
+    }
+
+    function showWidgetButton() {
+      if (triggerBtn) {
+        triggerBtn.style.display = 'inline-flex';
+        triggerBtn.setAttribute('aria-haspopup', 'dialog');
+        triggerBtn.setAttribute('aria-expanded', 'false');
+        triggerBtn.setAttribute('aria-controls', 'snug-modal-overlay');
+      }
+    }
+
+    // Modal management (Shared singleton overlay)
+    var modalOverlay = document.getElementById('snug-modal-overlay');
+    if (!modalOverlay) {
+      modalOverlay = document.createElement('div');
+      modalOverlay.id = 'snug-modal-overlay';
+      modalOverlay.className = 'snug-modal-overlay';
+      modalOverlay.setAttribute('role', 'presentation');
+      modalOverlay.setAttribute('aria-hidden', 'true');
+      modalOverlay.innerHTML = buildModalMarkup();
+      document.body.appendChild(modalOverlay);
+    }
+
+    var closeBtn = modalOverlay.querySelector('.snug-modal-close');
+    var fitForm = modalOverlay.querySelector('#snug-fit-form');
+    var resultArea = modalOverlay.querySelector('#snug-result-area');
+    var modalDialog = modalOverlay.querySelector('.snug-modal-content');
+
+    function buildModalMarkup() {
+      var brandOpts = '<option value="">Select brand...</option>' +
+        BRANDS.map(function (b) { return '<option value="' + b.v + '">' + b.l + '</option>'; }).join('');
+
+      var garmentOpts = GARMENTS.map(function (g) {
+        return '<option value="' + g.v + '">' + g.l + '</option>';
+      }).join('');
+
+      var sizeOpts = '<option value="">Select size...</option>' +
+        SIZES.map(function (s) { return '<option value="' + s + '">' + s + '</option>'; }).join('');
+
+      return '<div class="snug-modal-content" role="dialog" aria-modal="true" aria-labelledby="snug-modal-title" tabindex="-1">' +
+        '<button type="button" class="snug-modal-close" aria-label="Close fit recommendation dialog">&times;</button>' +
+        '<div class="snug-modal-header">' +
+        '<h3 id="snug-modal-title" class="snug-modal-title">Find Your Perfect Fit</h3>' +
+        '<p class="snug-modal-subtitle">Tell us what fits you best in other brands</p>' +
+        '</div>' +
+        '<form id="snug-fit-form">' +
+        '<div class="snug-form-group">' +
+        '<label class="snug-label" for="snug-ref-brand">Brand You Own</label>' +
+        '<select id="snug-ref-brand" class="snug-select" required aria-required="true">' + brandOpts + '</select>' +
+        '</div>' +
+        '<div class="snug-form-group">' +
+        '<label class="snug-label" for="snug-ref-garment">Garment Type</label>' +
+        '<select id="snug-ref-garment" class="snug-select" required aria-required="true">' + garmentOpts + '</select>' +
+        '</div>' +
+        '<div class="snug-form-group">' +
+        '<label class="snug-label" for="snug-ref-size">Your Size</label>' +
+        '<select id="snug-ref-size" class="snug-select" required aria-required="true">' + sizeOpts + '</select>' +
+        '</div>' +
+        '<button type="submit" class="snug-submit-btn">Calculate My Size</button>' +
+        '</form>' +
+        '<div id="snug-result-area" aria-live="polite" aria-atomic="true"></div>' +
+        '</div>';
+    }
+
+    function getFocusableElements() {
+      if (!modalOverlay) return [];
+      var nodes = modalOverlay.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      return Array.prototype.filter.call(nodes, function (node) {
+        return node.offsetWidth > 0 || node.offsetHeight > 0 || node === document.activeElement;
+      });
+    }
+
+    function handleKeyNavigation(e) {
+      if (!modalOverlay.classList.contains('snug-active')) return;
+
+      if (e.key === 'Escape' || e.keyCode === 27) {
+        e.preventDefault();
+        closeModal();
+        return;
+      }
+
+      if (e.key === 'Tab' || e.keyCode === 9) {
+        var focusables = getFocusableElements();
+        if (!focusables.length) return;
+
+        var firstEl = focusables[0];
+        var lastEl = focusables[focusables.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === firstEl || document.activeElement === modalDialog) {
+            e.preventDefault();
+            lastEl.focus();
+          }
+        } else {
+          if (document.activeElement === lastEl) {
+            e.preventDefault();
+            firstEl.focus();
+          }
+        }
+      }
+    }
+
+    function openModal() {
+      lastFocusedElement = document.activeElement;
+
+      var gSelect = modalOverlay.querySelector('#snug-ref-garment');
+      if (gSelect && mappedGarmentType) gSelect.value = mappedGarmentType;
+
+      if (widgetConfig.modal_position === 'bottom_left') {
+        modalOverlay.classList.add('snug-modal-bottom-left');
+      } else {
+        modalOverlay.classList.remove('snug-modal-bottom-left');
+      }
+
+      modalOverlay.classList.add('snug-active');
+      modalOverlay.setAttribute('aria-hidden', 'false');
+
+      if (triggerBtn) {
+        triggerBtn.setAttribute('aria-expanded', 'true');
+      }
+
+      document.body.style.overflow = 'hidden';
+      document.addEventListener('keydown', handleKeyNavigation);
+
+      var brandSelect = modalOverlay.querySelector('#snug-ref-brand');
+      if (brandSelect) {
+        setTimeout(function () { brandSelect.focus(); }, 60);
+      } else if (closeBtn) {
+        closeBtn.focus();
+      }
+    }
+
+    function closeModal() {
+      modalOverlay.classList.remove('snug-active');
+      modalOverlay.setAttribute('aria-hidden', 'true');
+
+      if (triggerBtn) {
+        triggerBtn.setAttribute('aria-expanded', 'false');
+      }
+
+      document.body.style.overflow = '';
+      document.removeEventListener('keydown', handleKeyNavigation);
+
+      if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
+        lastFocusedElement.focus();
+      }
+    }
+
+    if (triggerBtn && !triggerBtn.hasAttribute('data-snug-bound')) {
+      triggerBtn.setAttribute('data-snug-bound', 'true');
+      triggerBtn.addEventListener('click', openModal);
+    }
+
+    if (closeBtn && !closeBtn.hasAttribute('data-snug-bound')) {
+      closeBtn.setAttribute('data-snug-bound', 'true');
+      closeBtn.addEventListener('click', closeModal);
+    }
+
+    if (modalOverlay && !modalOverlay.hasAttribute('data-snug-bound')) {
+      modalOverlay.setAttribute('data-snug-bound', 'true');
+      modalOverlay.addEventListener('click', function (e) {
+        if (e.target === modalOverlay) closeModal();
+      });
+    }
+
+    if (fitForm && !fitForm.hasAttribute('data-snug-bound')) {
+      fitForm.setAttribute('data-snug-bound', 'true');
+      fitForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var refBrand = modalOverlay.querySelector('#snug-ref-brand').value;
+        var refGarment = modalOverlay.querySelector('#snug-ref-garment').value;
+        var refSize = modalOverlay.querySelector('#snug-ref-size').value;
+
+        if (!refBrand || !refGarment || !refSize) return;
+
+        renderLoading();
+
+        var headers = {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        };
+        if (apiKey) headers['X-Snug-Key'] = apiKey;
+        if (shopDomain) headers['X-Shop-Domain'] = shopDomain;
+
+        fetch(workerUrl + '/v1/size', {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({
+            ref_brand: refBrand,
+            ref_garment: refGarment,
+            ref_size: refSize,
+            shopify_product_id: cleanProductId
+          })
+        })
+          .then(function (res) {
+            if (!res.ok) {
+              return res.json().catch(function () { return {}; }).then(function (errData) {
+                var message = errData && errData.message;
+                if (res.status === 429) {
+                  throw { message: message || 'Monthly recommendation limit reached for this store.' };
+                }
+                if (res.status === 404) {
+                  throw { message: message || 'No size chart matching the selected reference brand was found. Please try another reference brand or check the size guide.' };
+                }
+                if (res.status === 422) {
+                  throw { message: message || 'Sizing data is currently unavailable for this product configuration.' };
+                }
+                throw { message: message || 'Could not calculate size recommendation. Please try again.' };
+              });
+            }
+            return res.json();
+          })
+          .then(renderResult)
+          .catch(function (err) {
+            var msg = (err && typeof err.message === 'string' && err.message)
+              ? err.message
+              : 'Unable to calculate recommendation right now. Please check your connection and try again.';
+            renderError(msg);
+          });
+      });
+    }
+
+    function renderLoading() {
+      resultArea.innerHTML = '<div style="text-align:center; padding: 24px 12px;" role="status" aria-label="Loading size recommendation">' +
+        '<div class="snug-loading-spinner" aria-hidden="true"></div>' +
+        '<p style="font-size:13px; font-weight:600; color:#374151; margin-top:12px;">Calculating fit recommendation...</p>' +
+        '</div>';
+    }
+
+    function renderError(msg) {
+      resultArea.innerHTML = '<div class="snug-error-card" role="alert">' +
+        '<div class="snug-error-title">Notice</div>' +
+        '<div class="snug-error-desc">' + esc(msg) + '</div>' +
+        '</div>';
+    }
+
+    function renderResult(data) {
+      var isBoundary = data.is_boundary_case === true || (data.suggested_sizes && data.suggested_sizes.length > 1);
+      var confLabel = (data.confidence_label || 'high').toLowerCase();
+      var confText = confLabel.charAt(0).toUpperCase() + confLabel.slice(1);
+      var showConfidence = widgetConfig.show_confidence !== false;
+      var showReasoning = widgetConfig.show_reasoning !== false;
+
+      var confidenceBadgeHtml = showConfidence
+        ? '<div><span class="snug-confidence-badge snug-confidence-' + esc(confLabel) + '">● ' + esc(confText) + ' Confidence Match</span></div>'
+        : '';
+
+      if (isBoundary) {
+        var sizes = data.suggested_sizes || [data.predicted_size || 'M', data.adjacent_size || 'L'];
+        var sSnug = sizes[0] || 'M';
+        var sRelaxed = sizes[1] || 'L';
+
+        resultArea.innerHTML = '<div class="snug-result-card">' +
+          '<div class="snug-boundary-heading">You sit right between two sizes!</div>' +
+          '<div class="snug-boundary-subtext">Choose your preferred fit style:</div>' +
+          '<div class="snug-boundary-container" id="snug-boundary-selector" role="group" aria-label="Fit style selection">' +
+          '<button type="button" class="snug-boundary-option snug-selected" data-fit="snug" aria-pressed="true">' +
+          '<span class="snug-fit-size">' + esc(sSnug) + '</span>' +
+          '<span class="snug-fit-type">Snug Fit</span>' +
+          '</button>' +
+          '<button type="button" class="snug-boundary-option" data-fit="relaxed" aria-pressed="false">' +
+          '<span class="snug-fit-size">' + esc(sRelaxed) + '</span>' +
+          '<span class="snug-fit-type">Relaxed Fit</span>' +
+          '</button>' +
+          '</div>' +
+          '<div class="snug-fit-guidance" id="snug-fit-guidance" aria-live="polite">Selected <strong>' + esc(sSnug) + '</strong> for a snug, form-fitting look.</div>' +
+          confidenceBadgeHtml +
+          '</div>';
+
+        var opts = resultArea.querySelectorAll('.snug-boundary-option');
+        var guidance = resultArea.querySelector('#snug-fit-guidance');
+
+        function selectFitOption(clickedOption) {
+          for (var j = 0; j < opts.length; j++) {
+            opts[j].classList.remove('snug-selected');
+            opts[j].setAttribute('aria-pressed', 'false');
+          }
+          clickedOption.classList.add('snug-selected');
+          clickedOption.setAttribute('aria-pressed', 'true');
+
+          var isSnug = clickedOption.getAttribute('data-fit') === 'snug';
+          if (guidance) {
+            guidance.innerHTML = isSnug
+              ? 'Selected <strong>' + esc(sSnug) + '</strong> for a snug, form-fitting look.'
+              : 'Selected <strong>' + esc(sRelaxed) + '</strong> for a relaxed, comfortable fit.';
+          }
+        }
+
+        for (var i = 0; i < opts.length; i++) {
+          opts[i].addEventListener('click', function () {
+            selectFitOption(this);
+          });
+        }
+      } else {
+        var size = data.predicted_size || 'M';
+        var reasoningHtml = (showReasoning && data.reasoning)
+          ? '<p style="font-size:12px; color:#4b5563; margin: 0 0 8px 0;">' + esc(data.reasoning) + '</p>'
+          : '';
+
+        resultArea.innerHTML = '<div class="snug-result-card">' +
+          '<p style="font-size: 13px; font-weight: 600; color: #6b7280; margin: 0;">Recommended Size for You</p>' +
+          '<div class="snug-size-badge" aria-label="Recommended size: ' + esc(size) + '">' + esc(size) + '</div>' +
+          reasoningHtml +
+          confidenceBadgeHtml +
+          '</div>';
+      }
+    }
+
+    function esc(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSnugWidget);
+  } else {
+    initSnugWidget();
+  }
+})();
+

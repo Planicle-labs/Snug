@@ -23,8 +23,7 @@ import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { organizations, widgetConfigs } from "@snug/db";
 import { eq } from "drizzle-orm";
-import { randomUUID } from "crypto";
-import { pushApiKeyToKV } from "../lib/kv.server";
+import { pushApiKeyToKV, pushWidgetConfigToKV } from "../lib/kv.server";
 
 const POSITION_OPTIONS = [
   { label: "Below size selector", value: "below_size_selector" },
@@ -80,12 +79,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     .where(eq(orgTable.shop, session.shop))
     .limit(1);
 
+  const extensionId = process.env.SHOPIFY_EXTENSION_ID || "c260fa7a-4d1c-43c5-b1b0-7da41a36bca6c5bccfc7";
+  const themeEditorDeepLink = `https://${session.shop}/admin/themes/current/editor?context=apps&activateAppId=${extensionId}/snug_embed`;
+
   if (!org) {
     return {
       widgetActive: false,
       brandSlug: null,
       config: null,
       shop: session.shop,
+      themeEditorDeepLink,
     };
   }
 
@@ -100,8 +103,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     brandSlug: (org.brandSlug as string) || null,
     config: existingConfig ?? null,
     shop: session.shop,
+    themeEditorDeepLink,
   };
 };
+
+function sanitizeHexColor(color: string | null | undefined, fallback: string): string {
+  if (!color) return fallback;
+  let trimmed = color.trim();
+  if (!trimmed.startsWith("#") && /^[0-9a-fA-F]{3,6}$/.test(trimmed)) {
+    trimmed = `#${trimmed}`;
+  }
+  return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(trimmed) ? trimmed : fallback;
+}
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -164,11 +177,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   if (intent === "save-config") {
-    const position = (formData.get("position") as string) || "below_add_to_cart";
-    const modalPosition = (formData.get("modalPosition") as string) || "center";
-    const buttonText = (formData.get("buttonText") as string) || "Find Your Recommended Size";
-    const buttonColor = (formData.get("buttonColor") as string) || "#008060";
-    const buttonTextColor = (formData.get("buttonTextColor") as string) || "#ffffff";
+    const ALLOWED_POSITIONS = ["below_add_to_cart", "below_size_selector", "below_price"];
+    const rawPosition = (formData.get("position") as string) || "";
+    const position = ALLOWED_POSITIONS.includes(rawPosition) ? rawPosition : "below_add_to_cart";
+
+    const ALLOWED_MODAL_POSITIONS = ["center", "bottom_left"];
+    const rawModalPosition = (formData.get("modalPosition") as string) || "";
+    const modalPosition = ALLOWED_MODAL_POSITIONS.includes(rawModalPosition) ? rawModalPosition : "center";
+
+    let buttonText = ((formData.get("buttonText") as string) || "Find Your Recommended Size").trim();
+    if (buttonText.length > 100) buttonText = buttonText.slice(0, 100);
+    if (!buttonText) buttonText = "Find Your Recommended Size";
+
+    const buttonColor = sanitizeHexColor(formData.get("buttonColor") as string, "#008060");
+    const buttonTextColor = sanitizeHexColor(formData.get("buttonTextColor") as string, "#ffffff");
     const showConfidence = formData.get("showConfidence") === "on";
     const showReasoning = formData.get("showReasoning") === "on";
 
@@ -200,13 +222,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         .where(eq(widgetConfigsTable.orgId, org.id));
     } else {
       await dbClient.insert(widgetConfigsTable).values({
-        id: randomUUID(),
         orgId: org.id,
         position,
         isEnabled: true,
         config: configData,
       });
     }
+
+    await pushWidgetConfigToKV(String(org.id), {
+      position,
+      modalPosition,
+      buttonText,
+      buttonColor,
+      buttonTextColor,
+      showConfidence,
+      showReasoning,
+      primaryColor: buttonColor,
+    });
 
     return { configSaved: true };
   }
@@ -215,7 +247,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function WidgetCustomizer() {
-  const { widgetActive, brandSlug, config } = useLoaderData<typeof loader>();
+  const { widgetActive, brandSlug, config, themeEditorDeepLink } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const isSubmitting = navigation.state === "submitting";
@@ -250,11 +282,6 @@ export default function WidgetCustomizer() {
   // Merchant's chosen reference brands list (local storage sync or default stub)
   const [connectedBrands, setConnectedBrands] = useState<MasterBrand[]>(DEFAULT_CONNECTED_BRANDS);
 
-  // Local browser data saving stubs (matching app.brand.tsx pattern)
-  const [isWidgetActiveLocal, setIsWidgetActiveLocal] = useState(widgetActive);
-  const [mockSuccessBanner, setMockSuccessBanner] = useState(false);
-
-  // TODO: Replace localStorage mock with production DB sync
   useEffect(() => {
     try {
       const savedBrands = localStorage.getItem("snug_selected_brands");
@@ -265,62 +292,10 @@ export default function WidgetCustomizer() {
           if (matched.length > 0) setConnectedBrands(matched);
         }
       }
-
-      const savedWidgetConfig = localStorage.getItem("snug_widget_config");
-      if (savedWidgetConfig) {
-        const parsedConfig = JSON.parse(savedWidgetConfig);
-        if (parsedConfig.position) setPosition(parsedConfig.position);
-        if (parsedConfig.modalPosition) setModalPosition(parsedConfig.modalPosition);
-        if (parsedConfig.buttonText) setButtonText(parsedConfig.buttonText);
-        if (parsedConfig.buttonColor) setButtonColor(parsedConfig.buttonColor);
-        if (parsedConfig.buttonTextColor) setButtonTextColor(parsedConfig.buttonTextColor);
-        if (typeof parsedConfig.showConfidence === "boolean") setShowConfidence(parsedConfig.showConfidence);
-        if (typeof parsedConfig.showReasoning === "boolean") setShowReasoning(parsedConfig.showReasoning);
-        if (typeof parsedConfig.isWidgetActive === "boolean") setIsWidgetActiveLocal(parsedConfig.isWidgetActive);
-      }
     } catch (e) {
       console.warn("[WidgetCustomizer] localStorage read error:", e);
     }
   }, []);
-
-  // TODO: Replace localStorage mock with production DB sync
-  const handleSaveConfigMock = useCallback((e?: React.FormEvent) => {
-    try {
-      const payload = {
-        position,
-        modalPosition,
-        buttonText,
-        buttonColor,
-        buttonTextColor,
-        showConfidence,
-        showReasoning,
-        isWidgetActive: isWidgetActiveLocal,
-        updatedAt: new Date().toISOString(),
-      };
-      localStorage.setItem("snug_widget_config", JSON.stringify(payload));
-      setMockSuccessBanner(true);
-    } catch (err) {
-      console.error("[WidgetCustomizer] localStorage save error:", err);
-    }
-  }, [position, modalPosition, buttonText, buttonColor, buttonTextColor, showConfidence, showReasoning, isWidgetActiveLocal]);
-
-  // TODO: Replace localStorage mock with production DB sync
-  const handleToggleActivationMock = useCallback(() => {
-    const nextState = !isWidgetActiveLocal;
-    setIsWidgetActiveLocal(nextState);
-    try {
-      const saved = localStorage.getItem("snug_widget_config");
-      const existing = saved ? JSON.parse(saved) : {};
-      localStorage.setItem("snug_widget_config", JSON.stringify({
-        ...existing,
-        isWidgetActive: nextState,
-        updatedAt: new Date().toISOString(),
-      }));
-      setMockSuccessBanner(true);
-    } catch (err) {
-      console.error("[WidgetCustomizer] localStorage activation toggle error:", err);
-    }
-  }, [isWidgetActiveLocal]);
 
   // Complete modal flow -> Calibrate shopper reference
   const handleCalculateSize = useCallback(() => {
@@ -348,17 +323,31 @@ export default function WidgetCustomizer() {
     >
       <Layout>
         {/* Top Notifications */}
-        {(actionData?.error || actionData?.configSaved || mockSuccessBanner) && (
+        {(actionData?.error || actionData?.configSaved || actionData?.activated || actionData?.deactivated) && (
           <Layout.Section>
             {actionData?.error && (
               <Banner tone="critical" title="Error">
                 <Text as="p" variant="bodyMd">{actionData.error}</Text>
               </Banner>
             )}
-            {(actionData?.configSaved || mockSuccessBanner) && (
-              <Banner tone="success" title="Settings Saved" onDismiss={() => setMockSuccessBanner(false)}>
+            {actionData?.configSaved && (
+              <Banner tone="success" title="Settings Saved">
                 <Text as="p" variant="bodyMd">
-                  Your widget branding and layout settings have been saved to browser local storage.
+                  Your widget branding and layout settings have been saved and published.
+                </Text>
+              </Banner>
+            )}
+            {actionData?.activated && (
+              <Banner tone="success" title="Widget Activated">
+                <Text as="p" variant="bodyMd">
+                  The Snug recommendation widget is now active on your storefront.
+                </Text>
+              </Banner>
+            )}
+            {actionData?.deactivated && (
+              <Banner tone="info" title="Widget Deactivated">
+                <Text as="p" variant="bodyMd">
+                  The Snug recommendation widget has been deactivated.
                 </Text>
               </Banner>
             )}
@@ -383,7 +372,7 @@ export default function WidgetCustomizer() {
                   <Text as="h2" variant="headingMd">Widget Appearance & Position</Text>
                   <Divider />
 
-                  <Form method="post" onSubmit={handleSaveConfigMock}>
+                  <Form method="post">
                     <input type="hidden" name="intent" value="save-config" />
                     <BlockStack gap="400">
                       <TextField
@@ -456,7 +445,7 @@ export default function WidgetCustomizer() {
                       <input type="hidden" name="showReasoning" value={showReasoning ? "on" : ""} />
 
                       <Box paddingBlockStart="200">
-                        <Button variant="primary" size="large" submit loading={isSubmitting} onClick={() => handleSaveConfigMock()}>
+                        <Button variant="primary" size="large" submit loading={isSubmitting}>
                           Save Customizer Settings
                         </Button>
                       </Box>
@@ -597,36 +586,42 @@ export default function WidgetCustomizer() {
                     <InlineStack align="space-between" blockAlign="center">
                       <InlineStack gap="200" blockAlign="center">
                         <Text as="h3" variant="headingSm">Widget Deployment Status</Text>
-                        <Badge tone={isWidgetActiveLocal ? "success" : "attention"}>
-                          {isWidgetActiveLocal ? "Active on Storefront" : "Inactive"}
+                        <Badge tone={widgetActive ? "success" : "attention"}>
+                          {widgetActive ? "Active on Storefront" : "Inactive"}
                         </Badge>
                       </InlineStack>
                     </InlineStack>
 
                     <Text as="p" variant="bodySm" tone="subdued">
-                      {isWidgetActiveLocal
+                      {widgetActive
                         ? "The Snug recommendation widget is live and visible on your storefront product detail pages."
                         : "The Snug widget is currently turned off. Activate it to display size recommendations to shoppers."}
                     </Text>
 
-                    {brandSlug || connectedBrands.length > 0 ? (
-                      <Form method="post" onSubmit={handleToggleActivationMock}>
-                        <input type="hidden" name="intent" value={isWidgetActiveLocal ? "deactivate" : "activate"} />
-                        <Button
-                          variant={isWidgetActiveLocal ? "secondary" : "primary"}
-                          tone={isWidgetActiveLocal ? "critical" : undefined}
-                          submit
-                          loading={isSubmitting}
-                          onClick={() => handleToggleActivationMock()}
-                        >
-                          {isWidgetActiveLocal ? "Deactivate Widget" : "Activate Widget"}
+                    <InlineStack gap="200" align="start" blockAlign="center">
+                      {brandSlug || connectedBrands.length > 0 ? (
+                        <Form method="post">
+                          <input type="hidden" name="intent" value={widgetActive ? "deactivate" : "activate"} />
+                          <Button
+                            variant={widgetActive ? "secondary" : "primary"}
+                            tone={widgetActive ? "critical" : undefined}
+                            submit
+                            loading={isSubmitting}
+                          >
+                            {widgetActive ? "Deactivate Widget" : "Activate Widget"}
+                          </Button>
+                        </Form>
+                      ) : (
+                        <Button url="/app/brand" variant="plain">
+                          Brand Setup →
                         </Button>
-                      </Form>
-                    ) : (
-                      <Button url="/app/brand" variant="plain">
-                        Brand Setup →
-                      </Button>
-                    )}
+                      )}
+                      {themeEditorDeepLink && (
+                        <Button url={themeEditorDeepLink} target="_blank" variant="tertiary">
+                          Open Theme App Embeds ↗
+                        </Button>
+                      )}
+                    </InlineStack>
                   </BlockStack>
                 </BlockStack>
               </Card>
@@ -664,11 +659,11 @@ export default function WidgetCustomizer() {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontWeight: "bold",
-                    fontSize: "13px",
                   }}
                 >
-                  📏
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.3 15.3l-6.6-6.6a1 1 0 0 0-1.4 0l-1.4 1.4-2.8-2.8 1.4-1.4a1 1 0 0 0 0-1.4L7.7 1.7a1 1 0 0 0-1.4 0L1.7 6.3a1 1 0 0 0 0 1.4l13.6 13.6a1 1 0 0 0 1.4 0l4.6-4.6a1 1 0 0 0 0-1.4z"/>
+                  </svg>
                 </div>
                 <InlineStack gap="150" blockAlign="center">
                   <Text as="span" variant="bodyMd" fontWeight="bold">
@@ -775,11 +770,11 @@ export default function WidgetCustomizer() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  fontSize: "12px",
-                  fontWeight: "bold",
                 }}
               >
-                ✨
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                </svg>
               </div>
               <Text as="h3" variant="headingSm">Find Your Recommended Size</Text>
             </InlineStack>
@@ -793,9 +788,11 @@ export default function WidgetCustomizer() {
                 fontSize: "18px",
                 cursor: "pointer",
                 color: "#6b7280",
+                lineHeight: 1,
               }}
+              aria-label="Close modal"
             >
-              ✕
+              &times;
             </button>
           </InlineStack>
 
@@ -895,12 +892,12 @@ export default function WidgetCustomizer() {
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "8px" }}>
                 {[
-                  { id: "T-Shirt", icon: "👕" },
-                  { id: "Shirt", icon: "👔" },
-                  { id: "Polo", icon: "👕" },
-                  { id: "Hoodie", icon: "🧥" },
-                  { id: "Jacket", icon: "🧥" },
-                  { id: "Trousers", icon: "👖" },
+                  { id: "T-Shirt" },
+                  { id: "Shirt" },
+                  { id: "Polo" },
+                  { id: "Hoodie" },
+                  { id: "Jacket" },
+                  { id: "Trousers" },
                 ].map((item) => {
                   const isSel = selectedGarment === item.id;
                   return (
@@ -918,7 +915,6 @@ export default function WidgetCustomizer() {
                         gap: "8px",
                       }}
                     >
-                      <span style={{ fontSize: "14px" }}>{item.icon}</span>
                       <Text as="span" variant="bodySm" fontWeight={isSel ? "bold" : "regular"}>
                         {item.id}
                       </Text>
@@ -976,9 +972,9 @@ export default function WidgetCustomizer() {
               <Select
                 label="How does this garment fit you?"
                 options={[
-                  { label: "🎯 Fits Perfect / Just Right", value: "perfect" },
-                  { label: "🤏 Runs a Bit Tight / Slim", value: "slim" },
-                  { label: "👕 Runs a Bit Loose / Oversized", value: "loose" },
+                  { label: "Fits Perfect / Just Right", value: "perfect" },
+                  { label: "Runs a Bit Tight / Slim", value: "slim" },
+                  { label: "Runs a Bit Loose / Oversized", value: "loose" },
                 ]}
                 value={selectedFitPref}
                 onChange={setSelectedFitPref}
@@ -989,7 +985,7 @@ export default function WidgetCustomizer() {
                   ← Back
                 </Button>
                 <Button variant="primary" size="medium" onClick={handleCalculateSize}>
-                  Calculate My Recommended Size ✨
+                  Calculate My Recommended Size
                 </Button>
               </InlineStack>
             </BlockStack>

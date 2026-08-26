@@ -8,11 +8,22 @@ name = "snug"
 scopes = "write_themes,read_themes,read_products,read_orders,read_customers"
 
 [webhooks]
-api_version = "2026-07"
+api_version = "2025-10"
   [[webhooks.subscriptions]]
   uri = "/webhooks/app/uninstalled"
   topics = [ "app/uninstalled" ]
 
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/data_request"
+  compliance_topics = [ "customers/data_request" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/redact"
+  compliance_topics = [ "customers/redact" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/shop/redact"
+  compliance_topics = [ "shop/redact" ]
 
 [auth]
 redirect_urls = [ "https://example.com/api/auth" ]
@@ -20,3 +31,4 @@ redirect_urls = [ "https://example.com/api/auth" ]
 [build]
 include_config_on_deploy = true
 automatically_update_urls_on_dev = true
+

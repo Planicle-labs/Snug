@@ -21,37 +21,35 @@ export default function App() {
   return (
     <div className={styles.index}>
       <div className={styles.content}>
-        <h1 className={styles.heading}>A short heading about [your app]</h1>
+        <h1 className={styles.heading}>Snug — AI Sizing &amp; Fit Engine</h1>
         <p className={styles.text}>
-          A tagline about [your app] that describes your value proposition.
+          Eliminate apparel sizing guesswork, reduce returns, and boost conversions with intelligent reference-based fit recommendations.
         </p>
         {showForm && (
           <Form className={styles.form} method="post" action="/auth/login">
             <label className={styles.label}>
               <span>Shop domain</span>
-              <input className={styles.input} type="text" name="shop" />
+              <input className={styles.input} type="text" name="shop" placeholder="my-store.myshopify.com" />
               <span>e.g: my-shop-domain.myshopify.com</span>
             </label>
             <button className={styles.button} type="submit">
-              Log in
+              Log in with Shopify
             </button>
           </Form>
         )}
         <ul className={styles.list}>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Reference Brand Calibration</strong>. Match shopper sizes against top apparel brands they already wear (Zara, Snitch, H&amp;M, Levi&apos;s, Nike).
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Garment Ease Calculation</strong>. Smart ease subtraction and anthropometric anchor models provide millimeter-accurate size predictions.
           </li>
           <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
+            <strong>Edge-Speed Storefront Widget</strong>. Instant sub-50ms recommendation widget powered by Cloudflare Workers with zero impact on store performance.
           </li>
         </ul>
       </div>
     </div>
   );
 }
+

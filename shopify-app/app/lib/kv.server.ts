@@ -144,6 +144,42 @@ export async function pushMappingsToKV(orgId: string) {
   return kvPut(key, payload);
 }
 
+export interface WidgetConfigKVPayload {
+  position: string;
+  button_text: string;
+  button_color: string;
+  button_text_color: string;
+  modal_position: string;
+  show_confidence: boolean;
+  show_reasoning: boolean;
+}
+
+export async function pushWidgetConfigToKV(
+  orgId: string,
+  config: {
+    position?: string;
+    buttonText?: string;
+    buttonColor?: string;
+    buttonTextColor?: string;
+    modalPosition?: string;
+    showConfidence?: boolean;
+    showReasoning?: boolean;
+    primaryColor?: string;
+  }
+) {
+  const key = `widget_config:${orgId}`;
+  const payload: WidgetConfigKVPayload = {
+    position: config.position || "below_add_to_cart",
+    button_text: config.buttonText || "Find Your Recommended Size",
+    button_color: config.buttonColor || config.primaryColor || "#008060",
+    button_text_color: config.buttonTextColor || "#ffffff",
+    modal_position: config.modalPosition || "center",
+    show_confidence: config.showConfidence ?? true,
+    show_reasoning: config.showReasoning ?? true,
+  };
+  return kvPut(key, payload);
+}
+
 export async function purgeMerchantFromKV(orgId: string, apiKey?: string | null, shop?: string | null) {
   const deletePromises: Promise<boolean>[] = [];
 
@@ -154,6 +190,7 @@ export async function purgeMerchantFromKV(orgId: string, apiKey?: string | null,
     deletePromises.push(kvDelete(`shop:${shop}`));
   }
   deletePromises.push(kvDelete(`merchant:${orgId}:mappings`));
+  deletePromises.push(kvDelete(`widget_config:${orgId}`));
 
   for (const garment of ACTIVE_GARMENTS) {
     for (const fit of FIT_TYPES) {
@@ -165,3 +202,4 @@ export async function purgeMerchantFromKV(orgId: string, apiKey?: string | null,
   console.log(`[KV Purge] Purged KV records for org ${orgId}: ${results.filter(Boolean).length} keys deleted.`);
   return true;
 }
+

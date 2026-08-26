@@ -433,7 +433,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         .set({ extraMeasurements: { ...existingMetadata, guideGender: gender, showOnStorefront }, updatedAt: new Date() })
         .where(eq((fitSizeCharts as any).id, row.id));
     }));
-    const fits = [...new Set(matchingRows.map((row: any) => String(row.fitType)))];
+    const fits: string[] = Array.from(new Set(matchingRows.map((row: any) => String(row.fitType))));
     await Promise.all(fits.map((fit) => pushChartToKV(org.id, garmentType as string, fit)));
     return { storefrontGuideUpdated: true, showOnStorefront, guideTitle: titleForGuide(gender, garmentType as string) };
   }
@@ -789,7 +789,7 @@ export default function SizeCharts() {
           open={Boolean(previewGuide)}
           onClose={() => setPreviewGuide(null)}
           title={previewGuide.showOnStorefront ? "Size guide preview" : "Review before publishing"}
-          large
+          size="large"
           primaryAction={{
             content: previewGuide.showOnStorefront ? "Done" : "Publish to storefront",
             onAction: () => {

@@ -2,7 +2,7 @@
 
 ---
 
-## 📅 Timeline
+## Timeline
 
 **Target Completion Window:** July 24, 2026 – July 28, 2026 (5 Days Total)
 

@@ -68,11 +68,11 @@ See [issues.md](issues.md) for the deployment blockers and acceptance criteria.
 
 | Surface | Status | Completed Features | Outstanding Work |
 |---|---|---|---|
-| **Database & Schema (`packages/db`)** | 🟢 Schema Pushed | Postgres setup, Drizzle schemas, trial fields, CHECK constraints | Seeding NIFT anthropometric anchors, seeding 10 reference brand size charts |
-| **Merchant Dashboard (`shopify-app`)** | 🟡 60% Built | OAuth, 3-step onboarding UI, Brand setup, Size Charts UI, Garment Mapping UI | Analytics UI, Billing UI, On-demand usage fetch (`GET /v1/admin/usage`), KV cache sync triggers, GDPR webhooks |
-| **Sizing API (`worker/`)** | 🟡 Not production ready | Hono routing, KV reads, sizing algorithm, and a `UsageCounter` DO scaffold | Fix admin auth and DO initialization; implement Neon persistence, runtime validation, reconciliation, and Worker-runtime tests (W-01 to W-10) |
-| **Background Crons** | 🔴 0% Built | None | Daily Usage sync cron (DO -> Neon Postgres), billing period rollover cron |
-| **Storefront Widget** | 🔴 0% Built | None | Theme App Extension scaffold, Vanilla JS bundle, sizing modal UI, boundary case two-size selector, Dawn theme integration |
+| **Database & Schema (`packages/db`)** | [DONE] Schema Pushed | Postgres setup, Drizzle schemas, trial fields, CHECK constraints | Seeding NIFT anthropometric anchors, seeding 10 reference brand size charts |
+| **Merchant Dashboard (`shopify-app`)** | [IN PROGRESS] 60% Built | OAuth, 3-step onboarding UI, Brand setup, Size Charts UI, Garment Mapping UI | Analytics UI, Billing UI, On-demand usage fetch (`GET /v1/admin/usage`), KV cache sync triggers, GDPR webhooks |
+| **Sizing API (`worker/`)** | [IN PROGRESS] In Development | Hono routing, KV reads, sizing algorithm, and a `UsageCounter` DO scaffold | Fix admin auth and DO initialization; implement Neon persistence, runtime validation, reconciliation, and Worker-runtime tests (W-01 to W-10) |
+| **Background Crons** | [TODO] Planned | None | Daily Usage sync cron (DO -> Neon Postgres), billing period rollover cron |
+| **Storefront Widget** | [TODO] Planned | None | Theme App Extension scaffold, Vanilla JS bundle, sizing modal UI, boundary case two-size selector, Dawn theme integration |
 
 ---
 

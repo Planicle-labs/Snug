@@ -43,7 +43,7 @@ export default defineConfig({
     dedupe: ["react", "react-dom", "react-router"],
   },
   server: {
-    allowedHosts: [host],
+    allowedHosts: [host, "localhost", "127.0.0.1", ".trycloudflare.com", ".myshopify.com", ".spin.dev"],
     cors: {
       preflightContinue: true,
     },

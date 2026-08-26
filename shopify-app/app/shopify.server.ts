@@ -9,6 +9,7 @@ import db from "./db.server";
 import { sessions, organizations } from "@snug/db";
 import { eq } from "drizzle-orm";
 import { pushApiKeyToKV } from "./lib/kv.server";
+import { ensureMetafieldDefinitions, syncShopMetafields } from "./lib/metafields.server";
 import { randomUUID } from "crypto";
 
 const shopify = shopifyApp({
@@ -43,6 +44,8 @@ const shopify = shopifyApp({
         .where(eq(orgTable.shop, shop))
         .limit(1);
 
+      let apiKeyToSync = existingOrg?.apiKey;
+
       if (!existingOrg) {
         const apiKey = randomUUID();
         const [newOrg] = await dbClient
@@ -59,6 +62,7 @@ const shopify = shopifyApp({
 
         const newOrgRecord = newOrg as Record<string, any>;
         if (newOrgRecord && newOrgRecord.apiKey) {
+          apiKeyToSync = newOrgRecord.apiKey;
           await pushApiKeyToKV({
             api_key: String(newOrgRecord.apiKey),
             org_id: String(newOrgRecord.id),
@@ -67,6 +71,35 @@ const shopify = shopifyApp({
             trial_requests_remaining: Number(newOrgRecord.trialRequestsRemaining ?? 1000),
             widget_active: Boolean(newOrgRecord.widgetActive),
           });
+        }
+      } else if (!existingOrg.apiKey) {
+        const apiKey = randomUUID();
+        await dbClient
+          .update(orgTable)
+          .set({ apiKey, updatedAt: new Date() })
+          .where(eq(orgTable.shop, shop));
+
+        apiKeyToSync = apiKey;
+        await pushApiKeyToKV({
+          api_key: apiKey,
+          org_id: String(existingOrg.id),
+          shop: String(existingOrg.shop),
+          plan_tier: (existingOrg.planTier || "trial") as "trial" | "starter" | "growth",
+          trial_requests_remaining: Number(existingOrg.trialRequestsRemaining ?? 1000),
+          widget_active: Boolean(existingOrg.widgetActive),
+        });
+      }
+
+      if (apiKeyToSync) {
+        try {
+          const { admin } = await shopify.unauthenticated.admin(shop);
+          await ensureMetafieldDefinitions(admin);
+          await syncShopMetafields(admin, {
+            apiKey: String(apiKeyToSync),
+            workerUrl: process.env.SNUG_WORKER_URL,
+          });
+        } catch (err) {
+          console.error("Failed to sync shop metafields in afterAuth:", err);
         }
       }
     },

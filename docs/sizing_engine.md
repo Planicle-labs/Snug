@@ -41,11 +41,11 @@ From that single constrained input (where reference brand measurements are fully
 
 ### Detailed Dual-Path Engine Breakdown
 
-#### 🌟 Path A: Fitted Match (Direct Garment Delta)
+#### Path A: Fitted Match (Direct Garment Delta)
 Compares the reference garment's chest measurement against the merchant's target garment measurements to find the minimal delta.
-* **Best for:** Same-fit comparisons (e.g. Regular T-Shirt → Regular T-Shirt) and shoppers who prefer an oversized style kept closer to their body ("fitted oversized").
+* **Best for:** Same-fit comparisons (e.g. Regular T-Shirt -> Regular T-Shirt) and shoppers who prefer an oversized style kept closer to their body ("fitted oversized").
 
-#### 📐 Path B: Silhouette Match (Body Anchor + Target Ease)
+#### Path B: Silhouette Match (Body Anchor + Target Ease)
 Strips standard category ease (`TSHIRT_EASE`) from the reference garment to recover estimated body chest (`body_chest = ref_garment_mid - TSHIRT_EASE[ref_fit]`). Then adds target brand standard ease (`body_chest + TSHIRT_EASE[target_fit]`) to find the garment that delivers the intended silhouette (e.g., boxy, dropped shoulders).
 * **Best for:** Cross-fit translations (e.g. Regular Polo shirt → Oversized Drop-shoulder Tee).
 

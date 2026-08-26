@@ -888,7 +888,7 @@ export default function ProductMappingPage() {
                   <div className="snug-product-scroll-container">
                     {unmappedProductsList.length === 0 ? (
                       <EmptyState
-                        heading="All Products Mapped! 🎉"
+                        heading="All Products Mapped"
                         image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
                       >
                         <Text as="p" variant="bodySm">
@@ -1079,7 +1079,7 @@ export default function ProductMappingPage() {
                                     variant="tertiary"
                                     onClick={() => setPreviewProduct(product)}
                                   >
-                                    👁️ Preview
+                                    Preview
                                   </Button>
                                 </Tooltip>
 
@@ -1351,10 +1351,11 @@ export default function ProductMappingPage() {
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
-                              fontWeight: "bold",
                             }}
                           >
-                            📏
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21.3 15.3l-6.6-6.6a1 1 0 0 0-1.4 0l-1.4 1.4-2.8-2.8 1.4-1.4a1 1 0 0 0 0-1.4L7.7 1.7a1 1 0 0 0-1.4 0L1.7 6.3a1 1 0 0 0 0 1.4l13.6 13.6a1 1 0 0 0 1.4 0l4.6-4.6a1 1 0 0 0 0-1.4z"/>
+                            </svg>
                           </div>
                           <Text as="span" variant="bodyMd" fontWeight="bold">
                             Your Recommended Size: L

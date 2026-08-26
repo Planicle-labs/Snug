@@ -3,4 +3,5 @@ roles = ["frontend", "backend"]
 webhooks_path = "/webhooks/app/uninstalled"
 
 [commands]
-dev = "pnpm exec drizzle-kit push && pnpm exec react-router dev"
+dev = "pnpm exec react-router dev"
+
