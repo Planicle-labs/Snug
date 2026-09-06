@@ -46,57 +46,6 @@ export interface CatalogProduct {
   price?: string;
 }
 
-// Fallback demo products for testing when Shopify GraphQL catalog is empty or running locally
-const MOCK_PRODUCTS: CatalogProduct[] = [
-  {
-    id: "gid://shopify/Product/819203918201",
-    title: "Heavyweight Oversized Cotton Tee",
-    handle: "heavyweight-oversized-cotton-tee",
-    vendor: "Snug Athletics",
-    imageUrl: "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png",
-    price: "₹1,899",
-  },
-  {
-    id: "gid://shopify/Product/819203918202",
-    title: "Relaxed Fit Linen Casual Shirt",
-    handle: "relaxed-fit-linen-casual-shirt",
-    vendor: "Snug Studio",
-    imageUrl: "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png",
-    price: "₹2,499",
-  },
-  {
-    id: "gid://shopify/Product/819203918203",
-    title: "Classic Pique Cotton Polo",
-    handle: "classic-pique-cotton-polo",
-    vendor: "Snug Athletics",
-    imageUrl: "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png",
-    price: "₹1,599",
-  },
-  {
-    id: "gid://shopify/Product/819203918204",
-    title: "Vintage Wash Denim Jacket",
-    handle: "vintage-wash-denim-jacket",
-    vendor: "Snug Supply",
-    imageUrl: "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png",
-    price: "₹4,299",
-  },
-  {
-    id: "gid://shopify/Product/819203918205",
-    title: "Essential Pullover Fleece Hoodie",
-    handle: "essential-pullover-fleece-hoodie",
-    vendor: "Snug Athletics",
-    imageUrl: "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png",
-    price: "₹2,999",
-  },
-  {
-    id: "gid://shopify/Product/819203918206",
-    title: "Handspun Cotton Casual Kurta",
-    handle: "handspun-cotton-casual-kurta",
-    vendor: "Snug Heritage",
-    imageUrl: "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png",
-    price: "₹2,199",
-  },
-];
 
 // Custom high-contrast, accessible button-based checkbox with SVG checkmark
 function SelectionCheckbox({
@@ -176,7 +125,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   if (!org) {
     return {
       hasOrg: false,
-      products: MOCK_PRODUCTS,
+      products: [],
       mappings: [],
       sizeCharts: [],
       garmentTypes: GARMENT_TYPES,
@@ -233,11 +182,29 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       }));
     }
   } catch (err) {
-    console.warn("[Products Loader] Shopify GraphQL fetch warning, using fallback list:", err);
+    console.warn("[Products Loader] Shopify GraphQL fetch warning, checking database mappings:", err);
   }
 
-  // Combine live store products or fall back to mock catalog
-  const productsList = fetchedProducts.length > 0 ? fetchedProducts : MOCK_PRODUCTS;
+  // Combine live store products or fall back to products recorded in database mappings
+  let productsList: CatalogProduct[] = [];
+  if (fetchedProducts.length > 0) {
+    productsList = fetchedProducts;
+  } else if (dbMappings.length > 0) {
+    productsList = dbMappings.map((m: any) => {
+      const rawId = String(m.shopifyProductId || "");
+      const cleanId = rawId.split("/").pop() || rawId;
+      const garment = String(m.garmentType || "product");
+      const fit = String(m.fitType || "regular");
+      const label = `${garment.charAt(0).toUpperCase() + garment.slice(1)} (${fit.charAt(0).toUpperCase() + fit.slice(1)})`;
+      return {
+        id: rawId,
+        title: `Product #${cleanId} · ${label}`,
+        handle: `product-${cleanId}`,
+        vendor: shop.replace(".myshopify.com", ""),
+        imageUrl: "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png",
+      };
+    });
+  }
 
   return {
     hasOrg: true,

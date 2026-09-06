@@ -20,28 +20,7 @@ import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { organizations, fitSizeCharts, garmentMappings, widgetConfigs, usageLogs } from "@snug/db";
 import { eq, sql, desc } from "drizzle-orm";
-
-const MASTER_BRAND_MAP: Record<string, string> = {
-  snitch: "Snitch",
-  bewakoof: "Bewakoof",
-  zara: "Zara",
-  hm: "H&M",
-  levis: "Levi's",
-  nike: "Nike",
-  roadster: "Roadster",
-  souledstore: "The Souled Store",
-  uniqlo: "Uniqlo",
-  adidas: "Adidas",
-  puma: "Puma",
-  marksandspencer: "Marks & Spencer",
-  "allen-solly": "Allen Solly",
-  "peter-england": "Peter England",
-  "van-heusen": "Van Heusen",
-  gap: "Gap",
-  lululemon: "Lululemon",
-  under_armour: "Under Armour",
-  ralph_lauren: "Ralph Lauren",
-};
+import { resolveBrandSlugs, fetchDatabaseBrands } from "../lib/brands.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -144,15 +123,21 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   }));
 
   const rawSlugs = (org.brandSlug as string) || "";
-  const configuredBrands = rawSlugs
+  const slugsArray = rawSlugs
     .split(",")
     .map((s: string) => s.trim())
-    .filter(Boolean)
-    .map((slug: string) => {
-      const key = slug.toLowerCase();
-      const displayName = MASTER_BRAND_MAP[key] || slug.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-      return { slug, name: displayName };
-    });
+    .filter(Boolean);
+
+  let resolvedBrands = await resolveBrandSlugs(slugsArray);
+  if (resolvedBrands.length === 0) {
+    const allDbBrands = await fetchDatabaseBrands();
+    resolvedBrands = allDbBrands.slice(0, 5);
+  }
+  const configuredBrands = resolvedBrands.map((b) => ({
+    slug: b.slug,
+    name: b.name,
+    verified: b.verified,
+  }));
 
   const totalSizeCharts = Number(sizeChartCount?.count ?? 0);
   const totalMappings = Number(mappingCount?.count ?? 0);

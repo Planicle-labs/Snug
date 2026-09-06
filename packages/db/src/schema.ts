@@ -1,4 +1,4 @@
-import { bigint, boolean, check, index, integer, jsonb, numeric, pgTable, text, timestamp, uuid, uniqueIndex } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, date, index, integer, jsonb, numeric, pgTable, text, timestamp, uuid, uniqueIndex } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const sessions = pgTable("session", {
@@ -240,5 +240,45 @@ export const anthropometricAnchors = pgTable(
       'anthropometric_anchors_garment_type_check',
       sql`${table.garmentType} IN ('tshirt','shirt','polo','sweatshirt','hoodie','jacket','kurta','top')`
     ),
+  })
+);
+
+export const cleanSizeDb = pgTable(
+  'clean_size_db',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    brandName: text('brand_name').notNull(),
+    category: text('category').notNull(),
+    fit: text('fit').notNull(),
+    sizeLabel: text('size_label').notNull(),
+    region: text('region').default('IN').notNull(),
+    garmentChestCm: numeric('garment_chest_cm').notNull(),
+    garmentShoulderCm: numeric('garment_shoulder_cm'),
+    garmentLengthCm: numeric('garment_length_cm'),
+    garmentSleeveCm: numeric('garment_sleeve_cm'),
+    toFitChestCm: numeric('to_fit_chest_cm'),
+    confidence: text('confidence').notNull(),
+    lastVerified: date('last_verified').notNull(),
+    productCount: integer('product_count').notNull(),
+    source: text('source').notNull(),
+    chartTitle: text('chart_title'),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (table) => ({
+    uniqueCurve: uniqueIndex('clean_size_db_unique_curve').on(
+      table.brandName,
+      table.category,
+      table.fit,
+      table.sizeLabel,
+      table.region
+    ),
+    lookupIdx: index('idx_clean_size_db_lookup').on(
+      table.brandName,
+      table.category,
+      table.fit,
+      table.region
+    ),
+    confidenceIdx: index('idx_clean_size_db_confidence').on(table.confidence),
   })
 );

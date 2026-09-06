@@ -47,7 +47,8 @@ function runSizingEngine({ refSizeRow, targetChart, targetFitType, fitIntent }) 
 
   // Step 1: Recover body chest from reference garment
   const refGarmentMid = (Number(refSizeRow.chest_min_cm) + Number(refSizeRow.chest_max_cm)) / 2;
-  const refFit = refSizeRow.fit_type || "regular";
+  const rawFit = String(refSizeRow.fit_type || refSizeRow.fit || "regular").toLowerCase();
+  const refFit = rawFit === "slim" ? "slim" : rawFit === "oversized" || rawFit === "oversized_plus" ? "oversized" : rawFit === "relaxed" || rawFit === "relaxed_plus" || rawFit === "box" ? "relaxed" : "regular";
   const refEase = TSHIRT_EASE[refFit] || 8;
   const bodyChest = refGarmentMid - refEase;
 
@@ -237,31 +238,48 @@ async function runEndToEndTestSuite() {
   
   const testScenarios = [
     {
-      name: "Standard Match (Shopper wears Zara M Regular -> Merchant Tee)",
-      brand: "zara",
+      name: "Indian D2C Relaxed Match (Shopper wears Snitch M Relaxed -> Merchant Tee)",
+      brand: "snitch",
+      brandName: "Snitch",
       garment: "tshirt",
       size: "M",
+      fit: "relaxed",
       targetFit: "regular",
     },
     {
-      name: "Athletic Match (Shopper wears Nike L Regular -> Merchant Tee)",
-      brand: "nike",
+      name: "Indian D2C Regular Match (Shopper wears Bewakoof L Regular -> Merchant Tee)",
+      brand: "bewakoof",
+      brandName: "Bewakoof",
       garment: "tshirt",
       size: "L",
+      fit: "regular",
       targetFit: "regular",
     },
     {
-      name: "Indian D2C Match (Shopper wears Snitch M -> Merchant Tee)",
-      brand: "snitch",
+      name: "Indian D2C Polo Curve Match (Shopper wears Being Human M Regular -> Merchant Tee)",
+      brand: "being-human",
+      brandName: "Being Human",
+      garment: "polo",
+      size: "M",
+      fit: "regular",
+      targetFit: "regular",
+    },
+    {
+      name: "Indian D2C Signature Fit Match (Shopper wears The Bear House M Regular -> Merchant Tee)",
+      brand: "the-bear-house",
+      brandName: "The Bear House",
       garment: "tshirt",
       size: "M",
+      fit: "regular",
       targetFit: "regular",
     },
     {
-      name: "Boundary Case (Shopper wears Uniqlo S -> Merchant Tee)",
-      brand: "uniqlo",
+      name: "Indian D2C Oversized Curve Match (Shopper wears Nobero L Oversized -> Merchant Tee)",
+      brand: "nobero",
+      brandName: "Nobero",
       garment: "tshirt",
-      size: "S",
+      size: "L",
+      fit: "oversized",
       targetFit: "regular",
     },
   ];
@@ -269,21 +287,36 @@ async function runEndToEndTestSuite() {
   for (const scenario of testScenarios) {
     console.log(`\n  --- Scenario: ${scenario.name} ---`);
     
-    // Fetch reference brand row from DB
-    const refRows = await sql`
-      SELECT * FROM brand_size_charts 
-      WHERE brand = ${scenario.brand} 
-        AND garment_type = ${scenario.garment} 
+    // Fetch reference brand row exclusively from clean_size_db
+    const cleanRows = await sql`
+      SELECT garment_chest_cm as chest_min_cm, garment_chest_cm as chest_max_cm, fit as fit_type, size_label
+      FROM clean_size_db
+      WHERE (
+        LOWER(brand_name) = LOWER(${scenario.brandName || scenario.brand})
+        OR REPLACE(LOWER(brand_name), ' ', '-') = LOWER(${scenario.brand})
+      )
+        AND LOWER(category) = LOWER(${scenario.garment === 'tshirt' ? 't-shirt' : scenario.garment})
         AND size_label = ${scenario.size}
+        AND (
+          LOWER(fit) = LOWER(${scenario.fit || 'regular'})
+          OR LOWER(fit) = 'regular'
+          OR LOWER(fit) = 'relaxed'
+        )
+      ORDER BY 
+        CASE 
+          WHEN LOWER(fit) = LOWER(${scenario.fit || 'regular'}) THEN 1
+          WHEN LOWER(fit) = 'regular' THEN 2
+          ELSE 3
+        END
       LIMIT 1;
     `;
+    const refRow = cleanRows.length ? cleanRows[0] : null;
 
-    if (!refRows.length) {
+    if (!refRow) {
       console.log(`  Reference brand chart not found for ${scenario.brand} ${scenario.size}`);
       continue;
     }
 
-    const refRow = refRows[0];
     const prediction = runSizingEngine({
       refSizeRow: refRow,
       targetChart: sizeCharts,

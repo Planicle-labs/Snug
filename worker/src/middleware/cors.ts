@@ -3,7 +3,7 @@ import { createMiddleware } from "hono/factory";
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Snug-Key, Origin, Accept",
+  "Access-Control-Allow-Headers": "Content-Type, X-Snug-Key, X-Shop-Domain, Origin, Accept",
   // maximum caching age for the preflight response (in seconds)
   "Access-Control-Max-Age": "86400",
 }

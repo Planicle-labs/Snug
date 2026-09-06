@@ -1,5 +1,5 @@
 import type { FitIntent, FitType, RefSizeRow, TargetSizeRow } from './algorithm/types'
-import { isPlanTier, type MerchantKVRecord, type PredictRequestBody, type ProductMappingKVRecord } from './types'
+import { isPlanTier, type MerchantKVRecord, type PredictRequestBody, type ProductMappingKVRecord, type ReferenceCoverage } from './types'
 
 const FIT_TYPES = new Set<FitType>(['slim', 'regular', 'relaxed', 'oversized'])
 const FIT_INTENTS = new Set<FitIntent>(['true_silhouette', 'fitted'])
@@ -178,6 +178,40 @@ export function parseProductMappings(value: unknown): Record<string, ProductMapp
     }
   }
   return mappings
+}
+
+/**
+ * Reference coverage published under `brands:coverage`. Only combos present
+ * here may be offered by the storefront widget; anything else 404s in /v1/size.
+ */
+export function parseReferenceCoverage(value: unknown): ReferenceCoverage | null {
+  if (!isRecord(value)) return null
+  if (!Array.isArray(value.brands) || value.brands.length === 0 || value.brands.length > 200) return null
+
+  const brands: ReferenceCoverage['brands'] = []
+  for (const brand of value.brands) {
+    if (!isRecord(brand)) return null
+    const slug = nonEmptyString(brand.slug, 64)?.toLowerCase()
+    const name = nonEmptyString(brand.name, 64)
+    if (!slug || !name || !Array.isArray(brand.garments) || brand.garments.length === 0) return null
+
+    const garments: ReferenceCoverage['brands'][number]['garments'] = []
+    for (const garmentEntry of brand.garments) {
+      if (!isRecord(garmentEntry)) return null
+      const garment = nonEmptyString(garmentEntry.garment, 64)?.toLowerCase()
+      const label = nonEmptyString(garmentEntry.label, 64)
+      if (!garment || !label || !Array.isArray(garmentEntry.sizes) || garmentEntry.sizes.length === 0) return null
+      const sizes: string[] = []
+      for (const size of garmentEntry.sizes) {
+        const sizeLabel = nonEmptyString(size, 24)?.toUpperCase()
+        if (!sizeLabel) return null
+        sizes.push(sizeLabel)
+      }
+      garments.push({ garment, label, sizes })
+    }
+    brands.push({ slug, name, garments })
+  }
+  return { brands }
 }
 
 export function parseReferenceChart(value: unknown): RefSizeRow[] | null {

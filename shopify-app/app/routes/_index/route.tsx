@@ -39,7 +39,7 @@ export default function App() {
         )}
         <ul className={styles.list}>
           <li>
-            <strong>Reference Brand Calibration</strong>. Match shopper sizes against top apparel brands they already wear (Zara, Snitch, H&amp;M, Levi&apos;s, Nike).
+            <strong>Reference Brand Calibration</strong>. Match shopper sizes against top apparel brands they already wear (Snitch, Bewakoof, Being Human, Nobero, The Bear House).
           </li>
           <li>
             <strong>Garment Ease Calculation</strong>. Smart ease subtraction and anthropometric anchor models provide millimeter-accurate size predictions.

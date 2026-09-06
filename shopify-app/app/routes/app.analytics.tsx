@@ -47,7 +47,31 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     .where(eq((organizations as any).shop, shop))
     .limit(1);
 
-  if (orgs.length === 0) throw new Response("Organization not found", { status: 404 });
+  if (orgs.length === 0) {
+    return {
+      shop,
+      planTier: "trial",
+      trialRequestsRemaining: 1000,
+      isMockData: false,
+      widgetImpressions: 0,
+      totalRecommendations: 0,
+      boundaryCount: 0,
+      boundaryPercentage: 0,
+      totalConversions: 0,
+      conversionRate: "0.0",
+      activeChartsCount: 0,
+      avgResponseMs: 0,
+      dailySeries: [],
+      confidenceData: [
+        { name: "High", value: 0 },
+        { name: "Medium", value: 0 },
+        { name: "Low", value: 0 },
+      ],
+      garmentData: [],
+      topBrands: [],
+      sizeDistribution: [],
+    };
+  }
   const org = orgs[0];
 
   // 2. On-demand Worker sync (fire-and-forget)
@@ -169,81 +193,30 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     .where(eq((usageLogs as any).orgId, org.id));
   const avgResponseMs = Math.round(Number(avgRes?.value || 0));
 
-  // 10. Check if mock demo data should be populated
-  const isMockData = totalRecommendations === 0;
-
-  // Mock data fallback values when store has no live traffic yet
-  const mockWidgetImpressions = 4120;
-  const mockTotalRecommendations = 1284;
-  const mockTotalConversions = 314;
-  const mockConversionRate = "24.5";
-  const mockBoundaryCount = 186;
-  const mockBoundaryPercentage = 14;
-  const mockAvgResponseMs = 142;
-
-  const mockDailySeries: { date: string; Recommendations: number; Conversions: number }[] = [];
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const label = `${d.toLocaleString("default", { month: "short" })} ${d.getDate()}`;
-    const wave = Math.sin(i / 3) * 12;
-    const recs = Math.round(38 + wave + (i % 5) * 4);
-    const convs = Math.round(recs * 0.245 + (i % 3));
-    mockDailySeries.push({
-      date: label,
-      Recommendations: recs,
-      Conversions: convs,
-    });
-  }
-
-  const mockGarmentData = [
-    { name: "T-Shirt", Requests: 580 },
-    { name: "Shirt", Requests: 320 },
-    { name: "Hoodie", Requests: 210 },
-    { name: "Jacket", Requests: 114 },
-    { name: "Pants", Requests: 60 },
-  ];
-
-  const mockConfidenceData = [
-    { name: "High", value: 872 },
-    { name: "Medium", value: 312 },
-    { name: "Low", value: 100 },
-  ];
-
-  const mockTopBrands = [
-    { brand: "NIKE", count: 412 },
-    { brand: "ZARA", count: 298 },
-    { brand: "UNIQLO", count: 245 },
-    { brand: "H&M", count: 186 },
-    { brand: "LEVI'S", count: 143 },
-  ];
-
-  const mockSizeDistribution = [
-    { size: "L", count: 420 },
-    { size: "M", count: 385 },
-    { size: "XL", count: 250 },
-    { size: "S", count: 164 },
-    { size: "2XL", count: 65 },
-  ];
-
   return {
     shop,
     planTier: (org.planTier as string) || "trial",
     trialRequestsRemaining: Number(org.trialRequestsRemaining ?? 1000),
-    isMockData,
-    widgetImpressions: isMockData ? mockWidgetImpressions : (totalRecommendations > 0 ? Math.round(totalRecommendations * 3.2) : 0),
-    totalRecommendations: isMockData ? mockTotalRecommendations : totalRecommendations,
-    boundaryCount: isMockData ? mockBoundaryCount : boundaryCount,
-    boundaryPercentage: isMockData ? mockBoundaryPercentage : boundaryPercentage,
-    totalConversions: isMockData ? mockTotalConversions : totalConversions,
-    conversionRate: isMockData ? mockConversionRate : conversionRate,
-    activeChartsCount: isMockData ? 3 : activeChartsCount,
-    avgResponseMs: isMockData ? mockAvgResponseMs : avgResponseMs,
-    dailySeries: isMockData ? mockDailySeries : dailySeries,
-    confidenceData: isMockData ? mockConfidenceData : confidenceData,
-    garmentData: isMockData ? mockGarmentData : garmentData,
-    topBrands: isMockData ? mockTopBrands : topBrandsRes.map((b: any) => ({ brand: String(b.brand), count: Number(b.count) })),
-    sizeDistribution: isMockData ? mockSizeDistribution : sizeDistRes.map((s: any) => ({ size: String(s.size), count: Number(s.count) })),
+    isMockData: false,
+    widgetImpressions: totalRecommendations > 0 ? Math.round(totalRecommendations * 3.2) : 0,
+    totalRecommendations,
+    boundaryCount,
+    boundaryPercentage,
+    totalConversions,
+    conversionRate,
+    activeChartsCount,
+    avgResponseMs,
+    dailySeries,
+    confidenceData,
+    garmentData,
+    topBrands: topBrandsRes.map((b: any) => ({
+      brand: String(b.brand).toUpperCase(),
+      count: Number(b.count),
+    })),
+    sizeDistribution: sizeDistRes.map((s: any) => ({
+      size: String(s.size),
+      count: Number(s.count),
+    })),
   };
 };
 
@@ -376,11 +349,10 @@ export default function AnalyticsDashboard() {
     >
       <BlockStack gap="600">
 
-        {/* ── Demo data disclaimer banner ─────────────────────── */}
-        {data.isMockData && (
-          <Banner title="Demo Analytics Active — Viewing Sample Store Data" tone="info">
+        {!hasData && (
+          <Banner title="Awaiting Storefront Recommendations" tone="info">
             <p>
-              You are currently viewing sample shopper analytics data. Once shoppers interact with the Snug widget on your storefront, your live metrics will automatically replace this demo view.
+              Your sizing engine is connected to the database. Once shoppers interact with the Snug widget on your storefront, live recommendation metrics will automatically populate here.
             </p>
           </Banner>
         )}

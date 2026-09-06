@@ -4,7 +4,7 @@
  * payload shapes written by shopify-app/app/lib/kv.server.ts and seed-kv.ts.
  *
  * The dashboard routes call these writers on save, but they no-op without
- * CLOUDFLARE_* credentials, and reference brand charts have no UI path at all.
+ * CLOUDFLARE_* credentials.
  * This script is the deterministic bridge used for environments where the
  * dashboard cannot sync (fresh installs, CI, local dev against wrangler dev).
  *
@@ -45,6 +45,35 @@ function cleanProductId(rawId) {
   return String(rawId).replace(/^gid:\/\/shopify\/Product\//, '')
 }
 
+function normalizeBrandSlug(brandName) {
+  const lower = String(brandName || '').toLowerCase().trim()
+  if (lower === 'h_m' || lower === 'h&m' || lower === 'hm') return 'hm'
+  if (lower === 'levi' || lower === 'levis' || lower === "levi's" || lower === 'levi-s') return 'levis'
+  if (lower === 'the-souled-store' || lower === 'the souled store' || lower === 'souledstore') return 'souledstore'
+  if (lower === 'marks-and-spencer' || lower === 'marks & spencer' || lower === 'marksandspencer') return 'marksandspencer'
+  if (lower === 'ralph_lauren' || lower === 'ralph-lauren' || lower === 'ralph lauren') return 'ralph-lauren'
+  if (lower === 'under_armour' || lower === 'under-armour' || lower === 'under armour') return 'under-armour'
+  if (lower === 'allen-solly' || lower === 'allen_solly' || lower === 'allen solly') return 'allen-solly'
+  if (lower === 'peter-england' || lower === 'peter_england' || lower === 'peter england') return 'peter-england'
+  if (lower === 'van-heusen' || lower === 'van_heusen' || lower === 'van heusen') return 'van-heusen'
+
+  return lower
+    .replace(/['’]/g, '')
+    .replace(/[._]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+}
+
+function normalizeFitType(rawFit) {
+  const f = String(rawFit || '').toLowerCase().trim()
+  if (f === 'slim') return 'slim'
+  if (f === 'regular' || f === 'regular_plus') return 'regular'
+  if (f === 'oversized' || f === 'oversized_plus') return 'oversized'
+  if (f === 'relaxed' || f === 'relaxed_plus' || f === 'box') return 'relaxed'
+  return 'regular'
+}
+
 async function loadConfig() {
   const sql = neon(resolveDatabaseUrl())
 
@@ -71,12 +100,16 @@ async function loadConfig() {
     WHERE org_id = ${org.id}
   `
 
-  const brandCharts = await sql`
-    SELECT brand, garment_type, fit_type, size_label, chest_min_cm, chest_max_cm,
-           length_min_cm, length_max_cm, shoulder_min_cm, shoulder_max_cm,
-           ease_value_cm, ease_source
-    FROM brand_size_charts
-  `
+  let cleanBrandCharts = []
+  try {
+    cleanBrandCharts = await sql`
+      SELECT brand_name, category, fit, size_label, garment_chest_cm,
+             garment_length_cm, garment_shoulder_cm
+      FROM clean_size_db
+    `
+  } catch (err) {
+    console.warn('[publish-config] clean_size_db query warning:', err)
+  }
 
   const [widgetConfig] = await sql`
     SELECT position, config
@@ -85,13 +118,13 @@ async function loadConfig() {
     LIMIT 1
   `
 
-  return { org, charts, mappings, brandCharts, widgetConfig }
+  return { org, charts, mappings, cleanBrandCharts, widgetConfig }
 }
 
 /**
  * Mirrors pushApiKeyToKV + pushChartToKV + pushMappingsToKV + pushReferenceBrandsToKV + pushWidgetConfigToKV.
  */
-export function buildKvRecords({ org, charts, mappings, brandCharts, widgetConfig }) {
+export function buildKvRecords({ org, charts, mappings, cleanBrandCharts = [], widgetConfig }) {
   const records = []
 
   records.push([`apikey:${org.api_key}`, {
@@ -164,28 +197,110 @@ export function buildKvRecords({ org, charts, mappings, brandCharts, widgetConfi
   }
 
   const brandGroups = new Map()
-  for (const r of brandCharts) {
-    const groupKey = `${r.brand}:${r.garment_type}:${r.fit_type}`
+  const brandNames = new Map()
+  for (const r of cleanBrandCharts) {
+    const slug = normalizeBrandSlug(r.brand_name)
+    if (slug && !brandNames.has(slug)) brandNames.set(slug, String(r.brand_name).trim())
+    const garment = String(r.category).toLowerCase() === 't-shirt' ? 'tshirt' : String(r.category).toLowerCase()
+    const normFit = normalizeFitType(r.fit)
+    const groupKey = `${slug}:${garment}:${normFit}`
     if (!brandGroups.has(groupKey)) brandGroups.set(groupKey, [])
-    brandGroups.get(groupKey).push({
-      size_label: r.size_label,
-      fit_type: r.fit_type,
-      chest_min_cm: num(r.chest_min_cm),
-      chest_max_cm: num(r.chest_max_cm),
-      length_min_cm: num(r.length_min_cm),
-      length_max_cm: num(r.length_max_cm),
-      shoulder_min_cm: num(r.shoulder_min_cm),
-      shoulder_max_cm: num(r.shoulder_max_cm),
-      ease_value_cm: num(r.ease_value_cm),
-      ease_source: r.ease_source,
-    })
+    const chestVal = num(r.garment_chest_cm)
+    if (!chestVal || chestVal <= 0) continue
+
+    const sizeLabel = String(r.size_label).trim().toUpperCase()
+    if (!sizeLabel) continue
+
+    const newEntry = {
+      size_label: sizeLabel,
+      fit_type: normFit,
+      chest_min_cm: chestVal,
+      chest_max_cm: chestVal,
+      length_min_cm: num(r.garment_length_cm),
+      length_max_cm: num(r.garment_length_cm),
+      shoulder_min_cm: num(r.garment_shoulder_cm),
+      shoulder_max_cm: num(r.garment_shoulder_cm),
+      ease_value_cm: normFit === 'slim' ? 5 : normFit === 'oversized' ? 19 : normFit === 'relaxed' ? 12 : 8,
+      ease_source: 'inferred',
+    }
+    const existingIndex = brandGroups.get(groupKey).findIndex((item) => item.size_label === sizeLabel)
+    if (existingIndex >= 0) {
+      brandGroups.get(groupKey)[existingIndex] = newEntry
+    } else {
+      brandGroups.get(groupKey).push(newEntry)
+    }
   }
-  // Same grouping and midpoint ordering as pushReferenceBrandsToKV.
+
+  // Ensure every brand/garment has a :regular fit baseline curve so default storefront lookups never 404
+  const brandGarments = new Set()
+  for (const k of brandGroups.keys()) {
+    const [slug, garment] = k.split(':')
+    brandGarments.add(`${slug}:${garment}`)
+  }
+
+  for (const bg of brandGarments) {
+    const regularKey = `${bg}:regular`
+    if (!brandGroups.has(regularKey)) {
+      const fallbackKey = brandGroups.has(`${bg}:relaxed`)
+        ? `${bg}:relaxed`
+        : brandGroups.has(`${bg}:slim`)
+        ? `${bg}:slim`
+        : brandGroups.has(`${bg}:oversized`)
+        ? `${bg}:oversized`
+        : null
+      if (fallbackKey && brandGroups.has(fallbackKey)) {
+        const cloned = brandGroups.get(fallbackKey).map((entry) => ({
+          ...entry,
+          fit_type: 'regular',
+          ease_value_cm: 8,
+        }))
+        brandGroups.set(regularKey, cloned)
+      }
+    }
+  }
+
+  // Midpoint ordering matching pushReferenceBrandsToKV
   for (const [groupKey, rows] of brandGroups) {
     const sorted = [...rows].sort((a, b) =>
       (a.chest_min_cm + a.chest_max_cm) / 2 - (b.chest_min_cm + b.chest_max_cm) / 2
     )
     records.push([`brand:${groupKey}`, sorted])
+  }
+
+  const uniqueBrands = Array.from(new Set(cleanBrandCharts.map((r) => normalizeBrandSlug(r.brand_name)))).filter(Boolean)
+  if (uniqueBrands.length > 0) {
+    records.push(['brands:supported', uniqueBrands])
+  }
+
+  // Structured brand x garment coverage for the storefront widget. Sizes are
+  // taken from the :regular rows because the widget never sends ref_fit and
+  // the worker defaults it to regular. Only combos present here may be
+  // offered to shoppers; anything else would 404 in /v1/size.
+  const garmentLabels = { tshirt: 'T-Shirt / Top', polo: 'Polo Shirt' }
+  const coverage = { brands: [] }
+  for (const bg of brandGarments) {
+    const sep = bg.indexOf(':')
+    const slug = bg.slice(0, sep)
+    const garment = bg.slice(sep + 1)
+    const regularRows = brandGroups.get(`${bg}:regular`) || []
+    if (regularRows.length === 0) continue
+    const sortedSizes = [...regularRows]
+      .sort((a, b) => (a.chest_min_cm + a.chest_max_cm) / 2 - (b.chest_min_cm + b.chest_max_cm) / 2)
+      .map((row) => row.size_label)
+    let brandEntry = coverage.brands.find((b) => b.slug === slug)
+    if (!brandEntry) {
+      brandEntry = { slug, name: brandNames.get(slug) || slug, garments: [] }
+      coverage.brands.push(brandEntry)
+    }
+    brandEntry.garments.push({
+      garment,
+      label: garmentLabels[garment] || (garment.charAt(0).toUpperCase() + garment.slice(1)),
+      sizes: sortedSizes,
+    })
+  }
+  coverage.brands.sort((a, b) => a.name.localeCompare(b.name))
+  if (coverage.brands.length > 0) {
+    records.push(['brands:coverage', coverage])
   }
 
   return records
@@ -221,7 +336,7 @@ async function main() {
   console.log(`  organization : ${orgSummary}`)
   console.log(`  size charts  : ${config.charts.length} rows`)
   console.log(`  mappings     : ${config.mappings.length} products`)
-  console.log(`  brand charts : ${config.brandCharts.length} reference rows`)
+  console.log(`  clean size db: ${config.cleanBrandCharts.length} curve rows`)
 
   const records = buildKvRecords(config)
   const targets = LOCAL ? [PREVIEW_NAMESPACE_ID] : [NAMESPACE_ID]

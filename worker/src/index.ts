@@ -8,6 +8,7 @@ import { handleAdminUsageSync } from './handlers/adminUsage'
 import { handleProductMappingLookup } from './handlers/product'
 import { handleSizeGuideLookup } from './handlers/sizeGuide'
 import { handleWidgetConfigLookup } from './handlers/config'
+import { handleReferenceOptionsLookup } from './handlers/referenceOptions'
 
 export type AppEnv = {
   Bindings: Env;
@@ -43,6 +44,10 @@ app.get('/v1/size-guide', authMiddleware, handleSizeGuideLookup)
 
 // Storefront Widget Config Lookup (Requires Auth)
 app.get('/v1/config', authMiddleware, handleWidgetConfigLookup)
+
+// Storefront Reference Options Lookup (Requires Auth). DB-backed brand x
+// garment x size coverage the widget uses to build its reference dropdowns.
+app.get('/v1/reference-options', authMiddleware, handleReferenceOptionsLookup)
 
 // Internal Admin Usage Sync Endpoint (Protected by X-Internal-Secret)
 app.get('/v1/admin/usage', handleAdminUsageSync)

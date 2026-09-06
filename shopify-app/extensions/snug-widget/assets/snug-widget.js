@@ -78,6 +78,135 @@
     var cleanProductId = productId ? String(productId).replace(/^gid:\/\/shopify\/Product\//, '') : '';
     var lastFocusedElement = null;
 
+    // DB-backed reference coverage (brand x garment x sizes) from
+    // GET /v1/reference-options. Reference dropdowns are built exclusively
+    // from this data so shoppers can only select combos that resolve in
+    // /v1/size. Null until loaded; the trigger stays hidden without it.
+    var referenceCoverage = null;
+    var REFERENCE_COVERAGE_CACHE_KEY = 'snug-reference-coverage';
+    var REFERENCE_COVERAGE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+    function isValidReferenceCoverage(obj) {
+      if (!obj || typeof obj !== 'object' || !(obj.brands instanceof Array) || !obj.brands.length) return false;
+      for (var i = 0; i < obj.brands.length; i++) {
+        var b = obj.brands[i];
+        if (!b || typeof b.slug !== 'string' || !b.slug || !(b.garments instanceof Array) || !b.garments.length) return false;
+        for (var j = 0; j < b.garments.length; j++) {
+          var g = b.garments[j];
+          if (!g || typeof g.garment !== 'string' || !g.garment || !(g.sizes instanceof Array) || !g.sizes.length) return false;
+        }
+      }
+      return true;
+    }
+
+    function readCachedReferenceCoverage() {
+      try {
+        if (!window.localStorage) return null;
+        var raw = window.localStorage.getItem(REFERENCE_COVERAGE_CACHE_KEY);
+        if (!raw) return null;
+        var parsed = JSON.parse(raw);
+        if (!parsed || !isValidReferenceCoverage(parsed.coverage)) return null;
+        if (typeof parsed.cachedAt !== 'number' || (Date.now() - parsed.cachedAt) > REFERENCE_COVERAGE_CACHE_TTL_MS) return null;
+        return parsed.coverage;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function writeCachedReferenceCoverage(coverage) {
+      try {
+        if (window.localStorage) window.localStorage.setItem(REFERENCE_COVERAGE_CACHE_KEY, JSON.stringify({ cachedAt: Date.now(), coverage: coverage }));
+      } catch (e) {
+        /* private mode: in-memory only */
+      }
+    }
+
+    function findCoverageBrand(slug) {
+      if (!referenceCoverage) return null;
+      for (var i = 0; i < referenceCoverage.brands.length; i++) {
+        if (referenceCoverage.brands[i].slug === slug) return referenceCoverage.brands[i];
+      }
+      return null;
+    }
+
+    function findCoverageGarment(brand, garment) {
+      if (!brand || !(brand.garments instanceof Array)) return null;
+      for (var i = 0; i < brand.garments.length; i++) {
+        if (brand.garments[i].garment === garment) return brand.garments[i];
+      }
+      return null;
+    }
+
+    function setSelectOptions(select, placeholder, options) {
+      if (!select) return;
+      var html = placeholder ? '<option value="">' + esc(placeholder) + '</option>' : '';
+      for (var i = 0; i < options.length; i++) {
+        html += '<option value="' + esc(options[i].v) + '">' + esc(options[i].l) + '</option>';
+      }
+      select.innerHTML = html;
+    }
+
+    function populateGarmentSelect(brandSlug, preferredGarment) {
+      if (!modalOverlay) return null;
+      var garmentSelect = modalOverlay.querySelector('#snug-ref-garment');
+      if (!garmentSelect) return null;
+      var brand = findCoverageBrand(brandSlug);
+      if (!brand) {
+        setSelectOptions(garmentSelect, 'Select brand first...', []);
+        return null;
+      }
+      var garmentOpts = brand.garments.map(function (g) { return { v: g.garment, l: g.label || g.garment }; });
+      setSelectOptions(garmentSelect, 'Select garment...', garmentOpts);
+      var chosen = findCoverageGarment(brand, preferredGarment) ? preferredGarment
+        : (brand.garments.length ? brand.garments[0].garment : '');
+      if (chosen) garmentSelect.value = chosen;
+      return garmentSelect.value || null;
+    }
+
+    function populateSizeSelect(brandSlug, garmentValue) {
+      if (!modalOverlay) return;
+      var sizeSelect = modalOverlay.querySelector('#snug-ref-size');
+      if (!sizeSelect) return;
+      var garment = findCoverageGarment(findCoverageBrand(brandSlug), garmentValue);
+      if (!garment) {
+        setSelectOptions(sizeSelect, 'Select garment first...', []);
+        return;
+      }
+      var sizeOpts = garment.sizes.map(function (s) { return { v: s, l: s }; });
+      setSelectOptions(sizeSelect, 'Select size...', sizeOpts);
+    }
+
+    function applyReferenceCoverage() {
+      if (!referenceCoverage || !modalOverlay) return;
+      var brandSelect = modalOverlay.querySelector('#snug-ref-brand');
+      var garmentSelect = modalOverlay.querySelector('#snug-ref-garment');
+      var sizeSelect = modalOverlay.querySelector('#snug-ref-size');
+      if (!brandSelect || !garmentSelect || !sizeSelect) return;
+      var brandOpts = referenceCoverage.brands.map(function (b) { return { v: b.slug, l: b.name }; });
+      var previousBrand = brandSelect.value;
+      setSelectOptions(brandSelect, 'Select brand...', brandOpts);
+      if (findCoverageBrand(previousBrand)) brandSelect.value = previousBrand;
+      populateGarmentSelect(brandSelect.value, garmentSelect.value || mappedGarmentType);
+      populateSizeSelect(brandSelect.value, garmentSelect.value);
+      if (!brandSelect.hasAttribute('data-snug-cascade-bound')) {
+        brandSelect.setAttribute('data-snug-cascade-bound', 'true');
+        brandSelect.addEventListener('change', function () {
+          var chosenGarment = populateGarmentSelect(brandSelect.value, mappedGarmentType);
+          populateSizeSelect(brandSelect.value, chosenGarment);
+        });
+      }
+      if (!garmentSelect.hasAttribute('data-snug-cascade-bound')) {
+        garmentSelect.setAttribute('data-snug-cascade-bound', 'true');
+        garmentSelect.addEventListener('change', function () {
+          populateSizeSelect(brandSelect.value, garmentSelect.value);
+        });
+      }
+    }
+
+    function hideWidgetButton() {
+      if (triggerBtn) triggerBtn.style.display = 'none';
+    }
+
     fetchConfigAndMapping();
 
     function fetchConfigAndMapping() {
@@ -94,9 +223,29 @@
             .catch(function () { return { mapped: false }; })
         : Promise.resolve({ mapped: true });
 
-      Promise.all([configPromise, mappingPromise]).then(function (results) {
+      var coveragePromise = fetch(workerUrl + '/v1/reference-options', { headers: headers })
+        .then(function (res) { return res.ok ? res.json() : null; })
+        .catch(function () { return null; });
+
+      Promise.all([configPromise, mappingPromise, coveragePromise]).then(function (results) {
         var remoteConfig = results[0];
         var mappingData = results[1];
+        var coverageData = results[2];
+
+        if (isValidReferenceCoverage(coverageData)) {
+          referenceCoverage = coverageData;
+          writeCachedReferenceCoverage(coverageData);
+        } else {
+          referenceCoverage = readCachedReferenceCoverage();
+        }
+
+        // Fail closed: without DB-backed reference options the widget cannot
+        // offer any valid selection, so keep the trigger hidden.
+        if (!referenceCoverage) {
+          hideWidgetButton();
+          return;
+        }
+        applyReferenceCoverage();
 
         if (remoteConfig) {
           widgetConfig = Object.assign(widgetConfig, remoteConfig);
@@ -117,7 +266,14 @@
         showWidgetButton();
         observeThemeChanges(rootEl, widgetConfig.position);
       }).catch(function () {
-        // Fallback for offline or connection failure when product mapping unknown
+        // Fallback for offline or connection failure: only show the trigger
+        // when cached DB-backed reference options are available.
+        referenceCoverage = readCachedReferenceCoverage();
+        if (!referenceCoverage) {
+          hideWidgetButton();
+          return;
+        }
+        applyReferenceCoverage();
         applyWidgetStyles();
         relocateWidget(rootEl, widgetConfig.position);
         showWidgetButton();
@@ -334,8 +490,17 @@
     function openModal() {
       lastFocusedElement = document.activeElement;
 
+      var brandSelect = modalOverlay.querySelector('#snug-ref-brand');
       var gSelect = modalOverlay.querySelector('#snug-ref-garment');
-      if (gSelect && mappedGarmentType) gSelect.value = mappedGarmentType;
+      if (referenceCoverage && brandSelect && gSelect) {
+        if (!findCoverageBrand(brandSelect.value)) {
+          brandSelect.value = referenceCoverage.brands.length ? referenceCoverage.brands[0].slug : '';
+        }
+        var chosenGarment = populateGarmentSelect(brandSelect.value, gSelect.value || mappedGarmentType);
+        populateSizeSelect(brandSelect.value, chosenGarment);
+      } else if (gSelect && mappedGarmentType) {
+        gSelect.value = mappedGarmentType;
+      }
 
       if (widgetConfig.modal_position === 'bottom_left') {
         modalOverlay.classList.add('snug-modal-bottom-left');

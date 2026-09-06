@@ -25,6 +25,8 @@ import { organizations, widgetConfigs } from "@snug/db";
 import { eq } from "drizzle-orm";
 import { pushApiKeyToKV, pushWidgetConfigToKV } from "../lib/kv.server";
 
+import { fetchDatabaseBrands, resolveBrandSlugs, type MasterBrand } from "../lib/brands.server";
+
 const POSITION_OPTIONS = [
   { label: "Below size selector", value: "below_size_selector" },
   { label: "Below add to cart button", value: "below_add_to_cart" },
@@ -34,23 +36,6 @@ const POSITION_OPTIONS = [
 const MODAL_POSITION_OPTIONS = [
   { label: "Center Overlay Modal", value: "center" },
   { label: "Bottom-Left Floating Modal", value: "bottom_left" },
-];
-
-interface MasterBrand {
-  slug: string;
-  name: string;
-  color: string;
-}
-
-const DEFAULT_CONNECTED_BRANDS: MasterBrand[] = [
-  { slug: "snitch", name: "Snitch", color: "#111827" },
-  { slug: "bewakoof", name: "Bewakoof", color: "#EAB308" },
-  { slug: "zara", name: "Zara", color: "#000000" },
-  { slug: "hm", name: "H&M", color: "#DC2626" },
-  { slug: "levis", name: "Levi's", color: "#B91C1C" },
-  { slug: "nike", name: "Nike", color: "#0F172A" },
-  { slug: "uniqlo", name: "Uniqlo", color: "#EF4444" },
-  { slug: "roadster", name: "Roadster", color: "#1E293B" },
 ];
 
 interface WidgetConfigValues {
@@ -83,12 +68,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const themeEditorDeepLink = `https://${session.shop}/admin/themes/current/editor?context=apps&activateAppId=${extensionId}/snug_embed`;
 
   if (!org) {
+    const allDbBrands = await fetchDatabaseBrands();
     return {
       widgetActive: false,
       brandSlug: null,
       config: null,
       shop: session.shop,
       themeEditorDeepLink,
+      connectedBrands: allDbBrands.filter((b) => b.verified).slice(0, 8),
     };
   }
 
@@ -98,12 +85,28 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     .where(eq(widgetConfigsTable.orgId, org.id))
     .limit(1);
 
+  const rawBrandSlug = (org.brandSlug as string) || "";
+  const configuredSlugs = rawBrandSlug
+    .split(",")
+    .map((s: string) => s.trim())
+    .filter(Boolean);
+
+  let connectedBrands: MasterBrand[] = [];
+  if (configuredSlugs.length > 0) {
+    connectedBrands = await resolveBrandSlugs(configuredSlugs);
+  }
+  if (connectedBrands.length === 0) {
+    const allDbBrands = await fetchDatabaseBrands();
+    connectedBrands = allDbBrands.filter((b) => b.verified).slice(0, 8);
+  }
+
   return {
     widgetActive: Boolean(org.widgetActive),
-    brandSlug: (org.brandSlug as string) || null,
+    brandSlug: rawBrandSlug || null,
     config: existingConfig ?? null,
     shop: session.shop,
     themeEditorDeepLink,
+    connectedBrands,
   };
 };
 
@@ -247,7 +250,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function WidgetCustomizer() {
-  const { widgetActive, brandSlug, config, themeEditorDeepLink } = useLoaderData<typeof loader>();
+  const { widgetActive, brandSlug, config, themeEditorDeepLink, connectedBrands: initialBrands } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const isSubmitting = navigation.state === "submitting";
@@ -274,28 +277,22 @@ export default function WidgetCustomizer() {
   } | null>(null);
 
   // Form inputs for 3-turn modal
-  const [selectedRefBrand, setSelectedRefBrand] = useState("Snitch");
+  const [selectedRefBrand, setSelectedRefBrand] = useState(initialBrands?.[0]?.name || "");
   const [selectedGarment, setSelectedGarment] = useState("T-Shirt");
   const [selectedRefSize, setSelectedRefSize] = useState("L");
   const [selectedFitPref, setSelectedFitPref] = useState("perfect");
 
-  // Merchant's chosen reference brands list (local storage sync or default stub)
-  const [connectedBrands, setConnectedBrands] = useState<MasterBrand[]>(DEFAULT_CONNECTED_BRANDS);
+  // Merchant's chosen reference brands list from connected database
+  const [connectedBrands, setConnectedBrands] = useState<MasterBrand[]>(initialBrands || []);
 
   useEffect(() => {
-    try {
-      const savedBrands = localStorage.getItem("snug_selected_brands");
-      if (savedBrands) {
-        const parsed = JSON.parse(savedBrands);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const matched = DEFAULT_CONNECTED_BRANDS.filter((b) => parsed.includes(b.slug));
-          if (matched.length > 0) setConnectedBrands(matched);
-        }
+    if (initialBrands && initialBrands.length > 0) {
+      setConnectedBrands(initialBrands);
+      if (!initialBrands.some((b) => b.name === selectedRefBrand)) {
+        setSelectedRefBrand(initialBrands[0].name);
       }
-    } catch (e) {
-      console.warn("[WidgetCustomizer] localStorage read error:", e);
     }
-  }, []);
+  }, [initialBrands]);
 
   // Complete modal flow -> Calibrate shopper reference
   const handleCalculateSize = useCallback(() => {
@@ -836,7 +833,12 @@ export default function WidgetCustomizer() {
                   return (
                     <div
                       key={b.slug}
-                      onClick={() => setSelectedRefBrand(b.name)}
+                      onClick={() => {
+                        setSelectedRefBrand(b.name);
+                        if (b.categories && b.categories.length > 0 && !b.categories.some((c) => c.toLowerCase() === selectedGarment.toLowerCase())) {
+                          setSelectedGarment(b.categories[0]);
+                        }
+                      }}
                       style={{
                         padding: "10px 12px",
                         borderRadius: "8px",
@@ -890,38 +892,39 @@ export default function WidgetCustomizer() {
                 </Text>
               </BlockStack>
 
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "8px" }}>
-                {[
-                  { id: "T-Shirt" },
-                  { id: "Shirt" },
-                  { id: "Polo" },
-                  { id: "Hoodie" },
-                  { id: "Jacket" },
-                  { id: "Trousers" },
-                ].map((item) => {
-                  const isSel = selectedGarment === item.id;
-                  return (
-                    <div
-                      key={item.id}
-                      onClick={() => setSelectedGarment(item.id)}
-                      style={{
-                        padding: "10px 12px",
-                        borderRadius: "8px",
-                        border: isSel ? "1.5px solid #059669" : "1px solid #e1e3e5",
-                        background: isSel ? "#e4f5ea" : "#ffffff",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                      }}
-                    >
-                      <Text as="span" variant="bodySm" fontWeight={isSel ? "bold" : "regular"}>
-                        {item.id}
-                      </Text>
-                    </div>
-                  );
-                })}
-              </div>
+              {(() => {
+                const currentBrand = connectedBrands.find((b) => b.name === selectedRefBrand);
+                const categories = currentBrand?.categories && currentBrand.categories.length > 0
+                  ? currentBrand.categories
+                  : ["T-Shirt", "Polo"];
+                return (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "8px" }}>
+                    {categories.map((cat) => {
+                      const isSel = selectedGarment.toLowerCase() === cat.toLowerCase();
+                      return (
+                        <div
+                          key={cat}
+                          onClick={() => setSelectedGarment(cat)}
+                          style={{
+                            padding: "10px 12px",
+                            borderRadius: "8px",
+                            border: isSel ? "1.5px solid #059669" : "1px solid #e1e3e5",
+                            background: isSel ? "#e4f5ea" : "#ffffff",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                          }}
+                        >
+                          <Text as="span" variant="bodySm" fontWeight={isSel ? "bold" : "regular"}>
+                            {cat}
+                          </Text>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
 
               <InlineStack align="space-between">
                 <Button size="medium" variant="tertiary" onClick={() => setModalStep(1)}>

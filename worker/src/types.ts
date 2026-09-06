@@ -42,3 +42,20 @@ export type ValidatedCharts = {
   target: TargetSizeRow[]
   targetFitType: FitType
 }
+
+export interface ReferenceGarmentCoverage {
+  garment: string
+  label: string
+  /** Size labels from the :regular curve rows, ordered S to XL. */
+  sizes: string[]
+}
+
+export interface ReferenceBrandCoverage {
+  slug: string
+  name: string
+  garments: ReferenceGarmentCoverage[]
+}
+
+export interface ReferenceCoverage {
+  brands: ReferenceBrandCoverage[]
+}

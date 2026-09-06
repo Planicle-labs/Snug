@@ -9,6 +9,7 @@ import type {
   conversionEvents,
   widgetConfigs,
   brandRequests,
+  cleanSizeDb,
 } from './schema'
 import type { PlanTier } from './plans'
 
@@ -21,6 +22,7 @@ export type AnthropometricAnchor = InferSelectModel<typeof anthropometricAnchors
 export type ConversionEvent = InferSelectModel<typeof conversionEvents>
 export type WidgetConfig = InferSelectModel<typeof widgetConfigs>
 export type BrandRequest = InferSelectModel<typeof brandRequests>
+export type CleanSizeDbRow = InferSelectModel<typeof cleanSizeDb>
 
 /** v0 product writes are tshirt | polo. Other values are reserved in the CHECK. */
 export type GarmentType =

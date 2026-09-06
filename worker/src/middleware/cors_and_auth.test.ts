@@ -40,6 +40,23 @@ describe('CORS and Auth Middleware Comprehensive Tests', () => {
       expect(res.headers.get('Access-Control-Max-Age')).toBe('86400')
     })
 
+    it('handles OPTIONS preflight for /v1/size with X-Shop-Domain header', async () => {
+      const res = await exports.default.fetch(new Request('https://worker.test/v1/size', {
+        method: 'OPTIONS',
+        headers: {
+          'Origin': `https://${shop}`,
+          'Access-Control-Request-Method': 'POST',
+          'Access-Control-Request-Headers': 'Content-Type, X-Snug-Key, X-Shop-Domain',
+        },
+      }))
+
+      expect(res.status).toBe(204)
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*')
+      expect(res.headers.get('Access-Control-Allow-Headers')).toContain('X-Snug-Key')
+      expect(res.headers.get('Access-Control-Allow-Headers')).toContain('X-Shop-Domain')
+      expect(res.headers.get('Access-Control-Allow-Headers')).toContain('Content-Type')
+    })
+
     it('handles OPTIONS preflight for /v1/recommend with 204 and correct CORS headers', async () => {
       const res = await exports.default.fetch(new Request('https://worker.test/v1/recommend', {
         method: 'OPTIONS',

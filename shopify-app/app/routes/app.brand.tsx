@@ -25,332 +25,11 @@ import db from "../db.server";
 import { organizations, brandRequests } from "@snug/db";
 import { eq, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { fetchDatabaseBrands, type MasterBrand } from "../lib/brands.server";
 
 // Max reference brands allowed for widget baseline
 const MAX_BRAND_SELECTION = 30;
 
-interface MasterBrand {
-  slug: string;
-  name: string;
-  color: string;
-  categories: string[];
-  gender: ("menswear" | "womenswear" | "unisex" | "kids")[];
-  styles: ("streetwear" | "casual" | "formal" | "ethnic" | "activewear")[];
-  region: "india" | "global" | "both";
-  tier: "affordable" | "mid" | "premium";
-  verified: boolean;
-}
-
-const MASTER_BRANDS: MasterBrand[] = [
-  {
-    slug: "snitch",
-    name: "Snitch",
-    color: "#111827",
-    categories: ["T-Shirt", "Shirt", "Polo", "Hoodie", "Jacket"],
-    gender: ["menswear", "unisex"],
-    styles: ["streetwear", "casual"],
-    region: "india",
-    tier: "mid",
-    verified: true,
-  },
-  {
-    slug: "bewakoof",
-    name: "Bewakoof",
-    color: "#EAB308",
-    categories: ["T-Shirt", "Sweatshirt", "Hoodie", "Top"],
-    gender: ["menswear", "womenswear", "unisex"],
-    styles: ["casual", "streetwear"],
-    region: "india",
-    tier: "affordable",
-    verified: true,
-  },
-  {
-    slug: "zara",
-    name: "Zara",
-    color: "#000000",
-    categories: ["T-Shirt", "Shirt", "Polo", "Jacket", "Top"],
-    gender: ["menswear", "womenswear", "unisex"],
-    styles: ["casual", "formal", "streetwear"],
-    region: "global",
-    tier: "mid",
-    verified: true,
-  },
-  {
-    slug: "hm",
-    name: "H&M",
-    color: "#DC2626",
-    categories: ["T-Shirt", "Shirt", "Sweatshirt", "Jacket"],
-    gender: ["menswear", "womenswear", "unisex", "kids"],
-    styles: ["casual", "streetwear"],
-    region: "global",
-    tier: "affordable",
-    verified: true,
-  },
-  {
-    slug: "levis",
-    name: "Levi's",
-    color: "#B91C1C",
-    categories: ["T-Shirt", "Shirt", "Jacket"],
-    gender: ["menswear", "womenswear", "unisex"],
-    styles: ["casual"],
-    region: "global",
-    tier: "mid",
-    verified: true,
-  },
-  {
-    slug: "nike",
-    name: "Nike",
-    color: "#0F172A",
-    categories: ["T-Shirt", "Polo", "Sweatshirt", "Hoodie"],
-    gender: ["menswear", "womenswear", "unisex", "kids"],
-    styles: ["activewear", "streetwear"],
-    region: "global",
-    tier: "mid",
-    verified: true,
-  },
-  {
-    slug: "roadster",
-    name: "Roadster",
-    color: "#1E293B",
-    categories: ["T-Shirt", "Shirt", "Jacket"],
-    gender: ["menswear", "womenswear", "unisex"],
-    styles: ["casual"],
-    region: "india",
-    tier: "affordable",
-    verified: true,
-  },
-  {
-    slug: "souledstore",
-    name: "The Souled Store",
-    color: "#E11D48",
-    categories: ["T-Shirt", "Hoodie", "Top"],
-    gender: ["menswear", "womenswear", "unisex"],
-    styles: ["streetwear", "casual"],
-    region: "india",
-    tier: "affordable",
-    verified: true,
-  },
-  {
-    slug: "uniqlo",
-    name: "Uniqlo",
-    color: "#EF4444",
-    categories: ["T-Shirt", "Shirt", "Jacket", "Hoodie"],
-    gender: ["menswear", "womenswear", "unisex", "kids"],
-    styles: ["casual", "formal"],
-    region: "global",
-    tier: "mid",
-    verified: true,
-  },
-  {
-    slug: "adidas",
-    name: "Adidas",
-    color: "#008060",
-    categories: ["T-Shirt", "Polo", "Sweatshirt", "Hoodie"],
-    gender: ["menswear", "womenswear", "unisex"],
-    styles: ["activewear", "streetwear"],
-    region: "global",
-    tier: "mid",
-    verified: true,
-  },
-  {
-    slug: "puma",
-    name: "Puma",
-    color: "#18181B",
-    categories: ["T-Shirt", "Polo", "Sweatshirt"],
-    gender: ["menswear", "womenswear", "unisex"],
-    styles: ["activewear", "streetwear"],
-    region: "global",
-    tier: "mid",
-    verified: true,
-  },
-  {
-    slug: "marksandspencer",
-    name: "Marks & Spencer",
-    color: "#065F46",
-    categories: ["Shirt", "Polo", "Top"],
-    gender: ["menswear", "womenswear"],
-    styles: ["formal", "casual"],
-    region: "global",
-    tier: "mid",
-    verified: true,
-  },
-  {
-    slug: "allen-solly",
-    name: "Allen Solly",
-    color: "#1E3A8A",
-    categories: ["Shirt", "Polo", "T-Shirt"],
-    gender: ["menswear", "womenswear"],
-    styles: ["formal", "casual"],
-    region: "india",
-    tier: "mid",
-    verified: true,
-  },
-  {
-    slug: "peter-england",
-    name: "Peter England",
-    color: "#1E40AF",
-    categories: ["Shirt", "Polo", "T-Shirt"],
-    gender: ["menswear"],
-    styles: ["formal", "casual"],
-    region: "india",
-    tier: "affordable",
-    verified: true,
-  },
-  {
-    slug: "van-heusen",
-    name: "Van Heusen",
-    color: "#312E81",
-    categories: ["Shirt", "Polo", "Jacket"],
-    gender: ["menswear", "womenswear"],
-    styles: ["formal"],
-    region: "india",
-    tier: "mid",
-    verified: true,
-  },
-  {
-    slug: "manyavar",
-    name: "Manyavar",
-    color: "#881337",
-    categories: ["Kurta", "Jacket", "Shirt"],
-    gender: ["menswear", "kids"],
-    styles: ["ethnic"],
-    region: "india",
-    tier: "mid",
-    verified: true,
-  },
-  {
-    slug: "fabindia",
-    name: "FabIndia",
-    color: "#78350F",
-    categories: ["Kurta", "Top", "Shirt"],
-    gender: ["menswear", "womenswear"],
-    styles: ["ethnic", "casual"],
-    region: "india",
-    tier: "mid",
-    verified: true,
-  },
-  {
-    slug: "bluorng",
-    name: "Bluorng",
-    color: "#2563EB",
-    categories: ["T-Shirt", "Hoodie", "Sweatshirt"],
-    gender: ["menswear", "unisex"],
-    styles: ["streetwear"],
-    region: "india",
-    tier: "premium",
-    verified: true,
-  },
-  {
-    slug: "bhaane",
-    name: "Bhaane",
-    color: "#4B5563",
-    categories: ["T-Shirt", "Shirt", "Top"],
-    gender: ["menswear", "womenswear", "unisex"],
-    styles: ["streetwear", "casual"],
-    region: "india",
-    tier: "premium",
-    verified: true,
-  },
-  {
-    slug: "urbanic",
-    name: "Urbanic",
-    color: "#DB2777",
-    categories: ["Top", "T-Shirt", "Jacket"],
-    gender: ["womenswear"],
-    styles: ["casual", "streetwear"],
-    region: "both",
-    tier: "affordable",
-    verified: true,
-  },
-  {
-    slug: "westside",
-    name: "Westside",
-    color: "#059669",
-    categories: ["T-Shirt", "Shirt", "Top", "Kurta"],
-    gender: ["menswear", "womenswear", "kids"],
-    styles: ["casual", "ethnic", "formal"],
-    region: "india",
-    tier: "affordable",
-    verified: true,
-  },
-  {
-    slug: "pantaloons",
-    name: "Pantaloons",
-    color: "#D97706",
-    categories: ["T-Shirt", "Shirt", "Top", "Kurta"],
-    gender: ["menswear", "womenswear", "kids"],
-    styles: ["casual", "ethnic"],
-    region: "india",
-    tier: "affordable",
-    verified: true,
-  },
-  {
-    slug: "max",
-    name: "Max Fashion",
-    color: "#B91C1C",
-    categories: ["T-Shirt", "Shirt", "Top"],
-    gender: ["menswear", "womenswear", "kids"],
-    styles: ["casual"],
-    region: "india",
-    tier: "affordable",
-    verified: true,
-  },
-  {
-    slug: "mango",
-    name: "Mango",
-    color: "#171717",
-    categories: ["Top", "Shirt", "Jacket"],
-    gender: ["womenswear"],
-    styles: ["casual", "formal"],
-    region: "global",
-    tier: "mid",
-    verified: true,
-  },
-  {
-    slug: "gap",
-    name: "GAP",
-    color: "#1D4ED8",
-    categories: ["T-Shirt", "Hoodie", "Shirt"],
-    gender: ["menswear", "womenswear", "kids"],
-    styles: ["casual"],
-    region: "global",
-    tier: "mid",
-    verified: true,
-  },
-  {
-    slug: "superdry",
-    name: "Superdry",
-    color: "#C2410C",
-    categories: ["T-Shirt", "Jacket", "Hoodie"],
-    gender: ["menswear", "womenswear"],
-    styles: ["streetwear", "casual"],
-    region: "global",
-    tier: "premium",
-    verified: true,
-  },
-  {
-    slug: "tommy-hilfiger",
-    name: "Tommy Hilfiger",
-    color: "#0F172A",
-    categories: ["Polo", "Shirt", "T-Shirt", "Jacket"],
-    gender: ["menswear", "womenswear"],
-    styles: ["casual", "formal"],
-    region: "global",
-    tier: "premium",
-    verified: true,
-  },
-  {
-    slug: "calvin-klein",
-    name: "Calvin Klein",
-    color: "#18181B",
-    categories: ["T-Shirt", "Jacket", "Sweatshirt"],
-    gender: ["menswear", "womenswear"],
-    styles: ["casual", "streetwear"],
-    region: "global",
-    tier: "premium",
-    verified: true,
-  },
-];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -381,12 +60,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       .orderBy(desc(brandRequestsTable.createdAt));
   }
 
+  const brands = await fetchDatabaseBrands();
+  const availableSlugs = new Set(brands.map((b) => b.slug));
+
   const savedSlugsRaw = org?.brandSlug ?? "";
   const selectedSlugs = savedSlugsRaw
     ? savedSlugsRaw
         .split(",")
         .map((s: string) => s.trim())
-        .filter(Boolean)
+        .filter((s: string) => availableSlugs.has(s))
     : [];
 
   return {
@@ -400,6 +82,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         : new Date().toISOString(),
     })),
     org: org ? { id: org.id, widgetActive: Boolean(org.widgetActive) } : null,
+    brands,
   };
 };
 
@@ -415,10 +98,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (intent === "save-brands") {
     const brandSlugsRaw = (formData.get("brandSlugs") as string) || "";
-    const slugsArray = brandSlugsRaw
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const allDbBrands = await fetchDatabaseBrands();
+    const availableSlugs = new Set(allDbBrands.map((b) => b.slug));
+    const slugsArray = Array.from(
+      new Set(
+        brandSlugsRaw
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => availableSlugs.has(s))
+      )
+    );
 
     if (slugsArray.length === 0) {
       return {
@@ -587,7 +276,7 @@ function FilterIcon() {
 }
 
 export default function BrandSetup() {
-  const { selectedSlugs: serverSelectedSlugs, merchantRequests } =
+  const { selectedSlugs: serverSelectedSlugs, merchantRequests, brands } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
@@ -617,7 +306,7 @@ export default function BrandSetup() {
   const [selectedSlugs, setSelectedSlugs] = useState<string[]>(
     serverSelectedSlugs.length > 0
       ? serverSelectedSlugs
-      : ["snitch", "bewakoof", "zara", "hm", "levis", "roadster"],
+      : (brands || []).filter((b) => b.verified).slice(0, 6).map((b) => b.slug),
   );
 
   // Search and Filter states
@@ -641,7 +330,7 @@ export default function BrandSetup() {
 
   // Calculate Recommended Brand Slugs based on Questionnaire
   const recommendedSlugs = useMemo(() => {
-    return MASTER_BRANDS.filter((b) => {
+    return (brands || []).filter((b) => {
       const matchesGender =
         b.gender.includes(answers.gender as any) || b.gender.includes("unisex");
       const matchesStyle = b.styles.includes(answers.style as any);
@@ -651,19 +340,22 @@ export default function BrandSetup() {
         b.region === answers.region;
       return matchesGender || matchesStyle || matchesRegion;
     }).map((b) => b.slug);
-  }, [answers]);
+  }, [answers, brands]);
 
   // Handle questionnaire completion
   const handleQuestionnaireSubmit = useCallback(() => {
     // Pre-select top recommended brands up to 15
     const initialRecommended = recommendedSlugs.slice(0, 15);
+    const verifiedDefaults = (brands || []).filter((b) => b.verified).slice(0, 5).map((b) => b.slug);
     setSelectedSlugs(
       initialRecommended.length > 0
         ? initialRecommended
-        : ["snitch", "zara", "bewakoof", "hm", "levis"],
+        : verifiedDefaults.length > 0
+        ? verifiedDefaults
+        : (brands || []).slice(0, 5).map((b) => b.slug),
     );
     setViewMode("selection");
-  }, [recommendedSlugs]);
+  }, [recommendedSlugs, brands]);
 
   // Toggle brand selection with limit check
   const toggleBrand = useCallback((slug: string) => {
@@ -682,7 +374,7 @@ export default function BrandSetup() {
 
   // Filter master brands list based on search query & tag filter
   const filteredBrands = useMemo(() => {
-    return MASTER_BRANDS.filter((b) => {
+    return (brands || []).filter((b) => {
       const q = searchQuery.trim().toLowerCase();
       const matchesSearch =
         !q ||
@@ -696,13 +388,13 @@ export default function BrandSetup() {
         (styleFilter === "global" && b.region === "global");
       return matchesSearch && matchesCategoryFilter;
     });
-  }, [searchQuery, styleFilter, recommendedSlugs]);
+  }, [searchQuery, styleFilter, recommendedSlugs, brands]);
 
   // Active selected brands list for display view
   const activeBrands = useMemo(() => {
     const currentSlugs = actionData?.savedSlugs || serverSelectedSlugs;
-    return MASTER_BRANDS.filter((b) => currentSlugs.includes(b.slug));
-  }, [actionData, serverSelectedSlugs]);
+    return (brands || []).filter((b) => currentSlugs.includes(b.slug));
+  }, [actionData, serverSelectedSlugs, brands]);
 
   return (
     <Page
@@ -922,12 +614,12 @@ export default function BrandSetup() {
                       {
                         id: "india",
                         label: "India D2C Focus",
-                        desc: "Snitch, Bewakoof, Roadster, etc.",
+                        desc: "Snitch, Bewakoof, Being Human, etc.",
                       },
                       {
                         id: "global",
                         label: "Global / Western Focus",
-                        desc: "Zara, H&M, Levi's, Uniqlo, etc.",
+                        desc: "International reference curves",
                       },
                       {
                         id: "both",
@@ -1028,7 +720,7 @@ export default function BrandSetup() {
                 <BlockStack gap="300">
                   <TextField
                     label="Search supported brands"
-                    placeholder="e.g. Snitch, Bewakoof, Zara, Levi's..."
+                    placeholder="e.g. Snitch, Bewakoof, Being Human..."
                     value={searchQuery}
                     onChange={(val) => setSearchQuery(val)}
                     autoComplete="off"
@@ -1151,9 +843,25 @@ export default function BrandSetup() {
                           >
                             {brand.name.charAt(0).toUpperCase()}
                           </div>
-                          <Text as="h4" variant="headingSm" fontWeight="bold">
-                            {brand.name}
-                          </Text>
+                          <BlockStack gap="050">
+                            <InlineStack gap="150" blockAlign="center">
+                              <Text as="h4" variant="headingSm" fontWeight="bold">
+                                {brand.name}
+                              </Text>
+                              {brand.verified && (
+                                <Badge tone="success" size="small">
+                                  Verified
+                                </Badge>
+                              )}
+                            </InlineStack>
+                            {brand.chartCount && brand.chartCount > 0 ? (
+                              <Text as="p" variant="bodyXs" tone="subdued">
+                                {brand.productCount && brand.productCount > 0
+                                  ? `${brand.chartCount} charts · ${brand.productCount} items`
+                                  : `${brand.chartCount} size charts in DB`}
+                              </Text>
+                            ) : null}
+                          </BlockStack>
                         </InlineStack>
 
                         <div
@@ -1379,9 +1087,25 @@ export default function BrandSetup() {
                         >
                           {brand.name.charAt(0).toUpperCase()}
                         </div>
-                        <Text as="h4" variant="headingSm" fontWeight="bold">
-                          {brand.name}
-                        </Text>
+                        <BlockStack gap="050">
+                          <InlineStack gap="150" blockAlign="center">
+                            <Text as="h4" variant="headingSm" fontWeight="bold">
+                              {brand.name}
+                            </Text>
+                            {brand.verified && (
+                              <Badge tone="success" size="small">
+                                Verified
+                              </Badge>
+                            )}
+                          </InlineStack>
+                          {brand.chartCount && brand.chartCount > 0 ? (
+                            <Text as="p" variant="bodyXs" tone="subdued">
+                              {brand.productCount && brand.productCount > 0
+                                ? `${brand.chartCount} charts · ${brand.productCount} items`
+                                : `${brand.chartCount} size charts`}
+                            </Text>
+                          ) : null}
+                        </BlockStack>
                       </div>
                     ))}
                   </div>
