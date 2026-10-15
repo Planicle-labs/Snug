@@ -74,7 +74,16 @@ function getBrandColor(slug: string): string {
   return palette[Math.abs(hash) % palette.length];
 }
 
-export async function fetchDatabaseBrands(): Promise<MasterBrand[]> {
+let cachedBrands: MasterBrand[] | null = null;
+let cacheExpiry = 0;
+const BRANDS_CACHE_TTL_MS = 60 * 1000;
+
+export async function fetchDatabaseBrands(forceFresh = false): Promise<MasterBrand[]> {
+  const now = Date.now();
+  if (!forceFresh && cachedBrands && now < cacheExpiry) {
+    return cachedBrands;
+  }
+
   const dbClient = db as any;
 
   let cleanBrandRows: Array<{
@@ -172,6 +181,9 @@ export async function fetchDatabaseBrands(): Promise<MasterBrand[]> {
     if (pDiff !== 0) return pDiff;
     return (b.chartCount || 0) - (a.chartCount || 0) || a.name.localeCompare(b.name);
   });
+
+  cachedBrands = allBrands;
+  cacheExpiry = Date.now() + BRANDS_CACHE_TTL_MS;
 
   return allBrands;
 }

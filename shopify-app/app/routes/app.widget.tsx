@@ -263,7 +263,6 @@ export default function WidgetCustomizer() {
   const [buttonText, setButtonText] = useState(rawConfig.buttonText || "Find Your Recommended Size");
   const [buttonColor, setButtonColor] = useState(rawConfig.buttonColor || rawConfig.primaryColor || "#008060");
   const [buttonTextColor, setButtonTextColor] = useState(rawConfig.buttonTextColor || "#ffffff");
-  const [showConfidence, setShowConfidence] = useState(rawConfig.showConfidence ?? true);
   const [showReasoning, setShowReasoning] = useState(rawConfig.showReasoning ?? true);
 
   // Storefront Sandbox State (State A: Uncalibrated vs State B: Calibrated)
@@ -427,18 +426,11 @@ export default function WidgetCustomizer() {
                       <Text as="h3" variant="headingSm">Recommendation Options</Text>
 
                       <Checkbox
-                        label="Display fit confidence match indicator (e.g. 98% Match)"
-                        checked={showConfidence}
-                        onChange={setShowConfidence}
-                      />
-
-                      <Checkbox
                         label="Display sizing calculation reasoning (e.g. chest ease details)"
                         checked={showReasoning}
                         onChange={setShowReasoning}
                       />
 
-                      <input type="hidden" name="showConfidence" value={showConfidence ? "on" : ""} />
                       <input type="hidden" name="showReasoning" value={showReasoning ? "on" : ""} />
 
                       <Box paddingBlockStart="200">
@@ -666,7 +658,6 @@ export default function WidgetCustomizer() {
                   <Text as="span" variant="bodyMd" fontWeight="bold">
                     {`Your Recommended Size: ${shopperRef.size}`}
                   </Text>
-                  {showConfidence && <Badge tone="success">98% Fit Match</Badge>}
                 </InlineStack>
               </InlineStack>
 

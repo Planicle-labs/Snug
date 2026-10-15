@@ -17,7 +17,14 @@ export async function handleSizePrediction(ctx: Context<AppEnv>) {
   }
 
   const org = ctx.var.org
-  const mappingsRaw = await ctx.env.KV.get(`merchant:${org.org_id}:mappings`, 'json')
+  const refFit = body.ref_fit ?? 'regular'
+
+  // Optimize: query merchant mappings and reference brand chart in parallel
+  const [mappingsRaw, referenceRaw] = await Promise.all([
+    ctx.env.KV.get(`merchant:${org.org_id}:mappings`, 'json'),
+    ctx.env.KV.get(`brand:${body.ref_brand}:${body.ref_garment}:${refFit}`, 'json'),
+  ])
+
   if (mappingsRaw === null) {
     return ctx.json({ error: 'Not Found', message: 'This product is not mapped to an active merchant size chart' }, 404)
   }
@@ -33,15 +40,11 @@ export async function handleSizePrediction(ctx: Context<AppEnv>) {
     return ctx.json({ error: 'Not Found', message: 'This product is not mapped to an active merchant size chart' }, 404)
   }
 
-  const refFit = body.ref_fit ?? 'regular'
-  const [referenceRaw, targetRaw] = await Promise.all([
-    ctx.env.KV.get(`brand:${body.ref_brand}:${body.ref_garment}:${refFit}`, 'json'),
-    ctx.env.KV.get(`chart:${org.org_id}:${productMapping.garment_type}:${productMapping.fit_type}`, 'json'),
-  ])
-
   if (referenceRaw === null) {
     return ctx.json({ error: 'Not Found', message: `Reference brand size chart '${body.ref_brand}' for '${body.ref_garment}' (${refFit}) is not supported` }, 404)
   }
+
+  const targetRaw = await ctx.env.KV.get(`chart:${org.org_id}:${productMapping.garment_type}:${productMapping.fit_type}`, 'json')
   if (targetRaw === null) {
     return ctx.json({ error: 'Not Found', message: `Merchant size chart for '${productMapping.garment_type}' (${productMapping.fit_type}) was not found` }, 404)
   }

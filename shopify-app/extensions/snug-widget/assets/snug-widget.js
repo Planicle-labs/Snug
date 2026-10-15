@@ -213,6 +213,11 @@
       var headers = { 'Accept': 'application/json' };
       if (apiKey) headers['X-Snug-Key'] = apiKey;
 
+      var cachedCoverage = readCachedReferenceCoverage();
+      if (cachedCoverage) {
+        referenceCoverage = cachedCoverage;
+      }
+
       var configPromise = fetch(workerUrl + '/v1/config', { headers: headers })
         .then(function (res) { return res.ok ? res.json() : null; })
         .catch(function () { return null; });
@@ -223,19 +228,35 @@
             .catch(function () { return { mapped: false }; })
         : Promise.resolve({ mapped: true });
 
-      var coveragePromise = fetch(workerUrl + '/v1/reference-options', { headers: headers })
-        .then(function (res) { return res.ok ? res.json() : null; })
-        .catch(function () { return null; });
+      // If coverage is cached, do not block widget rendering on the reference-options fetch
+      var coveragePromise = (!referenceCoverage)
+        ? fetch(workerUrl + '/v1/reference-options', { headers: headers })
+            .then(function (res) { return res.ok ? res.json() : null; })
+            .catch(function () { return null; })
+        : Promise.resolve(null);
+
+      if (referenceCoverage) {
+        fetch(workerUrl + '/v1/reference-options', { headers: headers })
+          .then(function (res) { return res.ok ? res.json() : null; })
+          .then(function (coverageData) {
+            if (isValidReferenceCoverage(coverageData)) {
+              referenceCoverage = coverageData;
+              writeCachedReferenceCoverage(coverageData);
+              applyReferenceCoverage();
+            }
+          })
+          .catch(function () {});
+      }
 
       Promise.all([configPromise, mappingPromise, coveragePromise]).then(function (results) {
         var remoteConfig = results[0];
         var mappingData = results[1];
         var coverageData = results[2];
 
-        if (isValidReferenceCoverage(coverageData)) {
+        if (coverageData && isValidReferenceCoverage(coverageData)) {
           referenceCoverage = coverageData;
           writeCachedReferenceCoverage(coverageData);
-        } else {
+        } else if (!referenceCoverage) {
           referenceCoverage = readCachedReferenceCoverage();
         }
 
@@ -559,6 +580,8 @@
       });
     }
 
+    var predictionCache = {};
+
     if (fitForm && !fitForm.hasAttribute('data-snug-bound')) {
       fitForm.setAttribute('data-snug-bound', 'true');
       fitForm.addEventListener('submit', function (e) {
@@ -568,6 +591,12 @@
         var refSize = modalOverlay.querySelector('#snug-ref-size').value;
 
         if (!refBrand || !refGarment || !refSize) return;
+
+        var cacheKey = refBrand + ':' + refGarment + ':' + refSize + ':' + cleanProductId;
+        if (predictionCache[cacheKey]) {
+          renderResult(predictionCache[cacheKey]);
+          return;
+        }
 
         renderLoading();
 
@@ -606,7 +635,10 @@
             }
             return res.json();
           })
-          .then(renderResult)
+          .then(function (data) {
+            predictionCache[cacheKey] = data;
+            renderResult(data);
+          })
           .catch(function (err) {
             var msg = (err && typeof err.message === 'string' && err.message)
               ? err.message
@@ -632,14 +664,7 @@
 
     function renderResult(data) {
       var isBoundary = data.is_boundary_case === true || (data.suggested_sizes && data.suggested_sizes.length > 1);
-      var confLabel = (data.confidence_label || 'high').toLowerCase();
-      var confText = confLabel.charAt(0).toUpperCase() + confLabel.slice(1);
-      var showConfidence = widgetConfig.show_confidence !== false;
       var showReasoning = widgetConfig.show_reasoning !== false;
-
-      var confidenceBadgeHtml = showConfidence
-        ? '<div><span class="snug-confidence-badge snug-confidence-' + esc(confLabel) + '">● ' + esc(confText) + ' Confidence Match</span></div>'
-        : '';
 
       if (isBoundary) {
         var sizes = data.suggested_sizes || [data.predicted_size || 'M', data.adjacent_size || 'L'];
@@ -660,7 +685,6 @@
           '</button>' +
           '</div>' +
           '<div class="snug-fit-guidance" id="snug-fit-guidance" aria-live="polite">Selected <strong>' + esc(sSnug) + '</strong> for a snug, form-fitting look.</div>' +
-          confidenceBadgeHtml +
           '</div>';
 
         var opts = resultArea.querySelectorAll('.snug-boundary-option');
@@ -697,7 +721,6 @@
           '<p style="font-size: 13px; font-weight: 600; color: #6b7280; margin: 0;">Recommended Size for You</p>' +
           '<div class="snug-size-badge" aria-label="Recommended size: ' + esc(size) + '">' + esc(size) + '</div>' +
           reasoningHtml +
-          confidenceBadgeHtml +
           '</div>';
       }
     }
